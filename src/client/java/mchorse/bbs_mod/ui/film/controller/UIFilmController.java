@@ -42,6 +42,10 @@ import mchorse.bbs_mod.ui.film.replays.UIRecordOverlayPanel;
 import mchorse.bbs_mod.ui.film.replays.UIReplayList;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditor;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
+import mchorse.bbs_mod.actions.crowd.CrowdWalk;
+import mchorse.bbs_mod.forms.forms.CrowdForm;
+import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
+import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
@@ -512,6 +516,22 @@ public class UIFilmController extends UIElement implements GizmoViewport
             return true;
         }
 
+        /* A walk waypoint's pole. Below the gizmo handles, so dragging the point you already have
+         * still wins, and above the replay pick, so a pole standing in front of an actor picks the
+         * pole. Selecting the keyframe is all this does - the gizmo follows the selection, which
+         * is what makes every waypoint reachable without going to the timeline for it. */
+        if (context.mouseButton == 0)
+        {
+            Keyframe<CrowdWalk> waypoint = this.pickWalkPoint(context);
+
+            if (waypoint != null)
+            {
+                this.panel.replayEditor.keyframeEditor.view.pickKeyframe(waypoint);
+
+                return true;
+            }
+        }
+
         /* Alt pick the replay */
         if (context.mouseButton == 0 && this.picker.getHoveredReplayIndex() >= 0)
         {
@@ -950,6 +970,104 @@ public class UIFilmController extends UIElement implements GizmoViewport
     }
 
     /**
+     * The walk keyframe currently being edited, if one is - which is what the gizmo moves.
+     *
+     * <p>2.5 also returned null while a replay was being shifted, since that gizmo owned the
+     * viewport; 2.6 has no replay-shift gizmo, so there is nothing to stand aside for.</p>
+     */
+    public UICrowdWalkKeyframeFactory getCrowdMotionEditor()
+    {
+        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
+
+        return keyframeEditor != null && keyframeEditor.isCrowdWalkTrack()
+            ? keyframeEditor.getCrowdMotionEditor()
+            : null;
+    }
+
+    public boolean isCrowdMotionGizmo()
+    {
+        return this.getCrowdMotionEditor() != null;
+    }
+
+    /**
+     * The walk waypoint the pointer is over, or null.
+     *
+     * <p>Tested against the poles the panel draws, so what can be clicked is exactly what can be
+     * seen. The pole is sampled along its height rather than solved as a segment: it is a thin
+     * vertical line and a handful of points down it is both simpler and impossible to get subtly
+     * wrong.</p>
+     *
+     * <p>The tolerance grows with distance so a pole across the set is no harder to hit than one
+     * underfoot - it is a marker, not a target.</p>
+     */
+    private Keyframe<CrowdWalk> pickWalkPoint(UIContext context)
+    {
+        Replay replay = this.panel.replayEditor == null ? null : this.panel.replayEditor.getReplay();
+
+        if (replay == null || !(replay.form.get() instanceof CrowdForm) || replay.keyframes.crowdWalk.isEmpty())
+        {
+            return null;
+        }
+
+        Camera camera = this.panel.getCamera();
+        Area viewport = this.panel.preview.getViewport();
+
+        if (camera == null || viewport == null)
+        {
+            return null;
+        }
+
+        Vector3f rayOffset = new Vector3f();
+        Vector3f direction = camera.getMouseRay(context.mouseX, context.mouseY, viewport.x, viewport.y, viewport.w, viewport.h, rayOffset);
+        Vector3d origin = new Vector3d(camera.position).add(rayOffset.x, rayOffset.y, rayOffset.z);
+        Vector3d dir = new Vector3d(direction.x, direction.y, direction.z).normalize();
+
+        Keyframe<CrowdWalk> best = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        for (Keyframe<CrowdWalk> keyframe : (List<Keyframe<CrowdWalk>>) replay.keyframes.crowdWalk.getKeyframes())
+        {
+            CrowdWalk walk = keyframe.getValue();
+
+            if (walk == null || !walk.showPoint)
+            {
+                continue;
+            }
+
+            for (int i = 0; i <= WALK_POLE_SAMPLES; i++)
+            {
+                double sampleY = walk.y + UIFilmPanel.CROWD_WALK_POLE_HEIGHT * (i / (double) WALK_POLE_SAMPLES);
+                Vector3d toPoint = new Vector3d(walk.x, sampleY, walk.z).sub(origin);
+                double along = toPoint.dot(dir);
+
+                if (along <= 0D)
+                {
+                    continue;
+                }
+
+                double away = new Vector3d(dir).mul(along).sub(toPoint).length();
+
+                /* A quarter block underfoot, widening with range so distance costs no accuracy. */
+                if (away > 0.25D + along * 0.02D)
+                {
+                    continue;
+                }
+
+                if (along < bestDistance)
+                {
+                    bestDistance = along;
+                    best = keyframe;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    /** Points down a pole to test against. Seven is smooth enough for a three block line. */
+    private static final int WALK_POLE_SAMPLES = 6;
+
+    /**
      * Whether the preview gizmo is actually drawn right now — the same gate the
      * renderer uses ({@link BaseFilmController#render}): axes enabled, not
      * recording, and a bone selected. The gizmo interaction must honour it, or
@@ -958,7 +1076,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
      */
     boolean canShowGizmo()
     {
-        return UIBaseMenu.shouldRenderAxes() && !this.isRecording() && (this.getBone() != null || this.isAnchorGizmo());
+        return UIBaseMenu.shouldRenderAxes() && !this.isRecording() && (this.getBone() != null || this.isAnchorGizmo() || this.isCrowdMotionGizmo());
     }
 
 }

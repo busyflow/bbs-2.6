@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.ui.film.controller;
 
+import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
 import mchorse.bbs_mod.film.BaseFilmController;
 import mchorse.bbs_mod.film.FilmEntityRenderer;
 import mchorse.bbs_mod.film.Film;
@@ -253,12 +254,24 @@ public class FilmEditorController extends BaseFilmController
             && !this.controller.panel.recorder.isRecording()
             && this.controller.isAnchorGizmo();
 
+        /* This context is what every pass reads - the one that draws and the one that picks -
+         * so the walk waypoint has to be named here. Naming it only where the stencil is built
+         * gave a gizmo that could be clicked and never seen. */
+        UICrowdWalkKeyframeFactory crowdMotion = this.isCurrent(entity)
+            && !this.controller.panel.recorder.isRecording()
+            ? this.controller.getCrowdMotionEditor()
+            : null;
+
         return super.getFilmControllerContext(context, replay, entity)
             .transition(this.getTransition(entity, context.tickDelta()))
             .bone(aBone, local)
             .gizmoSpace(this.controller.getBoneSpace(), this.controller.getGizmoView())
             .bone2(aBone2, local2)
-            .anchorGizmo(anchorGizmo, this.controller.getAnchorLocal());
+            .anchorGizmo(anchorGizmo, this.controller.getAnchorLocal())
+            .crowdMotionGizmo(
+                crowdMotion == null ? null : crowdMotion.getPath(),
+                crowdMotion == null ? 0F : crowdMotion.getMotionKeyframe().getTick()
+            );
     }
 
     private boolean isCurrent(IEntity entity)
