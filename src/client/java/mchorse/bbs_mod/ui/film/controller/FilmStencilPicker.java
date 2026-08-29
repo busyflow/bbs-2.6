@@ -8,6 +8,7 @@ import mchorse.bbs_mod.client.BBSShaders;
 import mchorse.bbs_mod.film.BaseFilmController;
 import mchorse.bbs_mod.film.FilmEntityRenderer;
 import mchorse.bbs_mod.film.FilmControllerContext;
+import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.forms.Form;
@@ -249,10 +250,16 @@ public class FilmStencilPicker
                     this.stencilMap.objectIndex = replays.size() + REPLAY_STENCIL_OFFSET;
                     this.stencilMap.setIncrement(true);
 
+                    UICrowdWalkKeyframeFactory crowdMotion = this.controller.getCrowdMotionEditor();
+
                     filmContext
                         .bone(bone == null ? null : bone.a, bone != null && bone.b)
                         .gizmoSpace(this.controller.getBoneSpace(), this.controller.getGizmoView())
-                        .anchorGizmo(this.controller.isAnchorGizmo(), this.controller.getAnchorLocal());
+                        .anchorGizmo(this.controller.isAnchorGizmo(), this.controller.getAnchorLocal())
+                        .crowdMotionGizmo(
+                            crowdMotion == null ? null : crowdMotion.getPath(),
+                            crowdMotion == null ? 0F : crowdMotion.getMotionKeyframe().getTick()
+                        );
                 }
                 else
                 {
@@ -267,6 +274,7 @@ public class FilmStencilPicker
         {
             Replay replay = this.controller.panel.replayEditor.getReplay();
             Pair<String, Boolean> bone = this.controller.getBone();
+            UICrowdWalkKeyframeFactory crowdMotion = this.controller.getCrowdMotionEditor();
 
             this.stencilMap.setIncrement(true);
 
@@ -277,7 +285,11 @@ public class FilmStencilPicker
                 .relative(replay.relative.get())
                 .bone(bone == null ? null : bone.a, bone != null && bone.b)
                 .gizmoSpace(this.controller.getBoneSpace(), this.controller.getGizmoView())
-                .anchorGizmo(this.controller.isAnchorGizmo(), this.controller.getAnchorLocal()));
+                .anchorGizmo(this.controller.isAnchorGizmo(), this.controller.getAnchorLocal())
+                .crowdMotionGizmo(
+                    crowdMotion == null ? null : crowdMotion.getPath(),
+                    crowdMotion == null ? 0F : crowdMotion.getMotionKeyframe().getTick()
+                ));
         }
 
         int x = (int) ((context.mouseX - viewport.x) / (float) viewport.w * mainTexture.width);
