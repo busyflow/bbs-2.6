@@ -1,0 +1,561 @@
+package mchorse.bbs_mod.film;
+
+import com.mojang.blaze3d.systems.RenderSystem;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import mchorse.bbs_mod.client.renderer.ItemUseEffects;
+import mchorse.bbs_mod.client.renderer.LivePlayerItemUse;
+import mchorse.bbs_mod.client.renderer.ThirdPersonItemUse;
+import mchorse.bbs_mod.cubic.animation.ItemUsePose;
+import mchorse.bbs_mod.entity.ActorEntity;
+import mchorse.bbs_mod.film.replays.Replay;
+import mchorse.bbs_mod.film.replays.ReplayItemUse;
+import mchorse.bbs_mod.film.replays.ReplayKeyframes;
+import mchorse.bbs_mod.film.replays.tracks.AnchorResolver;
+import mchorse.bbs_mod.film.replays.tracks.TrackBehaviour;
+import mchorse.bbs_mod.film.replays.tracks.TrackBehaviours;
+import mchorse.bbs_mod.film.replays.tracks.TrackContext;
+import mchorse.bbs_mod.forms.FormUtils;
+import mchorse.bbs_mod.forms.entities.IEntity;
+import mchorse.bbs_mod.forms.entities.MCEntity;
+import mchorse.bbs_mod.forms.entities.StubEntity;
+import mchorse.bbs_mod.forms.forms.Form;
+import mchorse.bbs_mod.forms.forms.utils.Anchor;
+import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
+import mchorse.bbs_mod.mixin.client.ClientPlayerEntityAccessor;
+import mchorse.bbs_mod.morphing.Morph;
+import mchorse.bbs_mod.utils.CollectionUtils;
+import mchorse.bbs_mod.utils.Pair;
+import mchorse.bbs_mod.utils.StringUtils;
+import mchorse.bbs_mod.utils.interps.Lerps;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.render.Camera;
+import net.minecraft.client.render.LightmapTextureManager;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.MovementType;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.text.Text;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.LightType;
+import net.minecraft.world.World;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+
+public abstract class BaseFilmController
+{
+    public final Film film;
+
+    /** The film's entities keyed by their replay's stable id, in replay-list order. */
+    public final Map<String, IEntity> entities = new LinkedHashMap<>();
+
+    public boolean paused;
+    public int exception = -1;
+
+    private final AnchorResolver anchors = this::resolveAnchor;
+
+    private static final Matrix4f IDENTITY = new Matrix4f();
+    private static final Vector3f TEMP_VECTOR = new Vector3f();
+
+    /* Rendering helpers */
+
+    public BaseFilmController(Film film)
+    {
+        this.film = film;
+    }
+
+    /**
+     * The film's replays, or nothing at all when no film is open — the editor keeps its controller
+     * around while the panel shows no film (see {@link #createEntities()}, which returns early for
+     * the same reason). These loops used to walk the entity map, which is simply empty then; walking
+     * the replay list instead means the absent film has to be answered for here.
+     */
+    private List<Replay> replays()
+    {
+        return this.film == null ? Collections.emptyList() : this.film.replays.getList();
+    }
+
+    public Map<String, IEntity> getEntities()
+    {
+        return this.entities;
+    }
+
+    public void togglePause()
+    {
+        this.paused = !this.paused;
+    }
+
+    public void createEntities()
+    {
+        this.entities.clear();
+
+        if (this.film == null)
+        {
+            return;
+        }
+
+        int i = 0;
+
+        for (Replay replay : this.film.replays.getList())
+        {
+            if (replay.enabled.get())
+            {
+                World world = MinecraftClient.getInstance().world;
+                IEntity entity = new StubEntity(world);
+                int ticks = replay.getTick(this.getTick());
+
+                entity.setForm(FormUtils.copy(replay.form.get()));
+                replay.keyframes.apply(ticks, entity);
+                entity.setPrevX(entity.getX());
+                entity.setPrevY(entity.getY());
+                entity.setPrevZ(entity.getZ());
+
+                entity.setPrevYaw(entity.getYaw());
+                entity.setPrevHeadYaw(entity.getHeadYaw());
+                entity.setPrevPitch(entity.getPitch());
+                entity.setPrevBodyYaw(entity.getBodyYaw());
+
+                this.entities.put(replay.getId(), entity);
+            }
+
+            i += 1;
+        }
+    }
+
+    public abstract Map<String, Integer> getActors();
+
+    public abstract int getTick();
+
+    public boolean hasFinished()
+    {
+        return false;
+    }
+
+    public void update()
+    {
+        this.updateEntities(this.getTick());
+    }
+
+    protected void updateEntities(int ticks)
+    {
+        List<Replay> replays = this.replays();
+
+        for (int i = 0; i < replays.size(); i++)
+        {
+            Replay replay = replays.get(i);
+            IEntity entity = this.entities.get(replay.getId());
+
+            if (entity == null || !this.canUpdate(i, replay, entity, UpdateMode.UPDATE))
+            {
+                continue;
+            }
+
+            if (replay != null)
+            {
+                /* Replay-local: a looping replay wraps the film tick to its own window, and that must not
+                 * carry over to the next replay in the loop (which would then wrap an already wrapped tick). */
+                int replayTicks = replay.getTick(ticks);
+
+                this.updateEntityAndForm(entity, replayTicks);
+                this.applyReplay(replay, replayTicks, entity);
+
+                /* Vanilla's eating and drinking effects: the actor never ticks
+                 * an item use, so the crumbs and chewing come from the clip.
+                 * The take the real player acts is no exception - the film's use
+                 * is only answered while drawing, so vanilla's own tick spits
+                 * nothing for them either (see LivePlayerItemUse). */
+                ItemUseEffects.tick(replay, entity, replayTicks);
+
+                Map<String, Integer> actors = this.getActors();
+
+                if (actors != null)
+                {
+                    Integer entityId = actors.get(replay.getId());
+
+                    if (entityId != null)
+                    {
+                        Entity anEntity = MinecraftClient.getInstance().world.getEntityById(entityId);
+
+                        if (anEntity instanceof ActorEntity actor)
+                        {
+                            /* Force synchronize entity angles */
+                            actor.setYaw(replay.keyframes.yaw.interpolate(replayTicks).floatValue());
+                            actor.setHeadYaw(replay.keyframes.headYaw.interpolate(replayTicks).floatValue());
+                            actor.setBodyYaw(replay.keyframes.bodyYaw.interpolate(replayTicks).floatValue());
+                            actor.setPitch(replay.keyframes.pitch.interpolate(replayTicks).floatValue());
+                            replay.applyClientActions(replayTicks, new MCEntity(anEntity), this.film);
+                        }
+                        else if (anEntity instanceof PlayerEntity player)
+                        {
+                            double x = replay.keyframes.x.interpolate(replayTicks);
+                            double y = replay.keyframes.y.interpolate(replayTicks);
+                            double z = replay.keyframes.z.interpolate(replayTicks);
+                            double prevX = replay.keyframes.x.interpolate(replayTicks - 1);
+                            double prevY = replay.keyframes.y.interpolate(replayTicks - 1);
+                            double prevZ = replay.keyframes.z.interpolate(replayTicks - 1);
+
+                            player.setVelocity(x - prevX, y - prevY, z - prevZ);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void updateEndWorld()
+    {
+        int ticks = this.getTick();
+
+        List<Replay> replays = this.replays();
+
+        for (int i = 0; i < replays.size(); i++)
+        {
+            Replay replay = replays.get(i);
+            IEntity entity = this.entities.get(replay.getId());
+
+            if (entity == null || !this.canUpdate(i, replay, entity, UpdateMode.UPDATE))
+            {
+                continue;
+            }
+
+            if (replay != null)
+            {
+                /* Replay-local, like in updateEntities: a looping replay wraps the film tick to its own
+                 * window, and writing that back into the loop variable handed the wrapped tick to every
+                 * replay after it — which then wrapped an already wrapped tick. */
+                int replayTicks = replay.getTick(ticks);
+
+                Map<String, Integer> actors = this.getActors();
+
+                if (actors != null)
+                {
+                    Integer entityId = actors.get(replay.getId());
+
+                    if (entityId != null)
+                    {
+                        Entity anEntity = MinecraftClient.getInstance().world.getEntityById(entityId);
+
+                        if (anEntity instanceof PlayerEntity player)
+                        {
+                            double x = replay.keyframes.x.interpolate(replayTicks);
+                            double y = replay.keyframes.y.interpolate(replayTicks);
+                            double z = replay.keyframes.z.interpolate(replayTicks);
+                            boolean sneaking = replay.keyframes.sneaking.interpolate(replayTicks) > 0;
+                            boolean grounded = replay.keyframes.grounded.interpolate(replayTicks) > 0;
+
+                            Vec3d pos = player.getPos();
+
+                            /* Probe downwards so vanilla's collision registers the floor - see
+                             * ReplayKeyframes#GRAVITY_PROBE. */
+                            double dY = y - pos.y - (grounded ? ReplayKeyframes.GRAVITY_PROBE : 0D);
+
+                            player.move(MovementType.SELF, new Vec3d(x - pos.x, dY, z - pos.z));
+                            player.setPosition(x, y, z);
+
+                            player.setSneaking(sneaking);
+                            player.setOnGround(grounded);
+
+                            /* The player's own tick overwrites this from the input every tick, but
+                             * baseTick (which spawns the sprinting particles) runs before it, so a
+                             * value written at the end of the world tick is the one vanilla sees. */
+                            player.setSprinting(replay.keyframes.sprinting.interpolate(replayTicks) > 0);
+
+                            /* First person teleports the player from keyframes instead of walking it, so vanilla's
+                             * stride distance (the view-bobbing amplitude) is computed from a zero velocity and stays
+                             * flat. Re-derive it from the actual per-tick displacement (the same source as the limb
+                             * animation) with vanilla's own easing. prevStrideDistance already holds last tick's value
+                             * (snapshotted by the player tick), so only the current one is advanced — keeping the bob
+                             * smooth between frames. */
+                            float dx = (float) (player.getX() - player.prevX);
+                            float dz = (float) (player.getZ() - player.prevZ);
+                            float stride = grounded ? Math.min(0.1F, (float) Math.sqrt(dx * dx + dz * dz)) : 0F;
+
+                            player.strideDistance = player.prevStrideDistance + (stride - player.prevStrideDistance) * 0.4F;
+
+                            if (player instanceof ClientPlayerEntityAccessor accessor)
+                            {
+                                accessor.bbs$setIsSneakingPose(sneaking);
+                            }
+
+                            if (player instanceof ClientPlayerEntity playerEntity)
+                            {
+                                playerEntity.input.sneaking = sneaking;
+                            }
+
+                            player.fallDistance = replay.keyframes.fall.interpolate(replayTicks).floatValue();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    protected void updateEntityAndForm(IEntity entity, int tick)
+    {
+        entity.update();
+
+        if (entity.getForm() != null)
+        {
+            entity.getForm().update(entity);
+        }
+    }
+
+    protected void applyReplay(Replay replay, int ticks, IEntity entity)
+    {
+        replay.keyframes.apply(ticks, entity);
+        replay.applyClientActions(ticks, entity, this.film);
+    }
+
+    public void startRenderFrame(float transition)
+    {
+        List<Replay> replays = this.replays();
+
+        for (int i = 0; i < replays.size(); i++)
+        {
+            Replay replay = replays.get(i);
+            IEntity entity = this.entities.get(replay.getId());
+
+            if (entity == null || !this.canUpdate(i, replay, entity, UpdateMode.PROPERTIES))
+            {
+                continue;
+            }
+
+            float delta = this.getTransition(entity, transition);
+            int tick = replay.getTick(this.getTick());
+
+            /* Apply property */
+            Form form1 = entity.getForm();
+
+            this.applyTracks(replay, form1, tick + delta, delta);
+
+            /* The item use of this take, published for everything that draws
+             * its body: the procedural animator poses the arms with it, and the
+             * model form renderer makes the vanilla item predicates fire on the
+             * held items (a drawn bow bends and shows its arrow) */
+            ItemUsePose.Use use = ReplayItemUse.compute(replay, tick + delta, true);
+            ItemUsePose.Use offUse = ReplayItemUse.compute(replay, tick + delta, false);
+
+            ThirdPersonItemUse.set(ThirdPersonItemUse.keyOf(entity), use, offUse);
+
+            Map<String, Integer> actors = this.getActors();
+
+            if (actors != null)
+            {
+                Integer entityId = actors.get(replay.getId());
+
+                if (entityId != null)
+                {
+                    Entity anEntity = MinecraftClient.getInstance().world.getEntityById(entityId);
+
+                    ThirdPersonItemUse.set(anEntity, use, offUse);
+
+                    if (anEntity instanceof ActorEntity actor)
+                    {
+                        this.applyTracks(replay, actor.getForm(), tick + delta, delta);
+                    }
+                    else if (anEntity instanceof PlayerEntity player)
+                    {
+                        /* The first person hand is vanilla's, and it asks the
+                         * live player what it is using - the film has to say */
+                        LivePlayerItemUse.apply(player, use, offUse);
+
+                        Morph morph = Morph.getMorph(player);
+
+                        if (morph != null)
+                        {
+                            this.applyTracks(replay, morph.getForm(), tick + delta, delta);
+                        }
+
+                        float yawHead = replay.keyframes.headYaw.interpolate(tick + delta).floatValue();
+                        float yawBody = replay.keyframes.bodyYaw.interpolate(tick + delta).floatValue();
+                        float pitch = replay.keyframes.pitch.interpolate(tick + delta).floatValue();
+
+                        player.setYaw(yawHead);
+                        player.setHeadYaw(yawHead);
+                        player.setPitch(pitch);
+                        player.setBodyYaw(yawBody);
+                        player.prevYaw = yawHead;
+                        player.prevHeadYaw = yawHead;
+                        player.prevPitch = pitch;
+                        player.prevBodyYaw = yawBody;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Lay one replay's tracks over a form for this frame: the per-frame overrides the track kinds
+     * leave behind are dropped first, so a track that was deleted (or whose keyframes ran out) stops
+     * driving the form, and then every track applies itself.
+     *
+     * <p>This used to be two passes written side by side — {@code FormProperties.applyProperties}
+     * for properties, bones and materials, and a second dispatcher here for the IK, pole, physics
+     * and wind tracks. Both walked the same map and matched the same ids; the kinds now say what
+     * they do themselves (see {@link TrackBehaviour}).</p>
+     */
+    protected void applyTracks(Replay replay, Form root, float tick, float transition)
+    {
+        if (replay == null || root == null)
+        {
+            return;
+        }
+
+        TrackBehaviours.clearOverrides(root);
+
+        replay.properties.apply(TrackContext.frame(root, transition, this.anchors), tick, 1F);
+    }
+
+    /**
+     * Resolving an anchor is the one thing a track cannot do on its own: it means composing the bone
+     * matrices of another replay's live entity, which only the controller has.
+     */
+    private Vector3f resolveAnchor(Anchor anchor, float transition)
+    {
+        if (this.entities.get(anchor.replay) == null)
+        {
+            return null;
+        }
+
+        Pair<Matrix4f, Float> matrix = FilmMatrices.getTotalMatrix(this.entities, anchor, IDENTITY, 0D, 0D, 0D, transition, 0, true);
+
+        return (matrix.a != null ? matrix.a : IDENTITY).getTranslation(TEMP_VECTOR);
+    }
+
+    /**
+     * The matrix-cache key of a bone path: the {@code pose.bones.} namespace drops out, leaving the
+     * owning form's path and the bone ({@code 0/1/pose.bones.head} &rarr; {@code 0/1/head}), which is
+     * how {@link MatrixCache} keys its entries. A path that is not a bone track passes through.
+     */
+    protected float getTransition(IEntity entity, float transition)
+    {
+        return this.paused ? 0F : transition;
+    }
+
+    protected boolean canUpdate(int i, Replay replay, IEntity entity, UpdateMode updateMode)
+    {
+        if (this.paused && (updateMode == UpdateMode.UPDATE))
+        {
+            return false;
+        }
+
+        return i != this.exception;
+    }
+
+    public void render(WorldRenderContext context)
+    {
+        RenderSystem.enableDepthTest();
+
+        List<Replay> replays = this.replays();
+
+        for (int i = 0; i < replays.size(); i++)
+        {
+            Replay replay = replays.get(i);
+            IEntity entity = this.entities.get(replay.getId());
+
+            if (entity == null || !this.canUpdate(i, replay, entity, UpdateMode.RENDER))
+            {
+                continue;
+            }
+
+            this.renderEntity(context, replay, entity);
+        }
+    }
+
+    protected void renderEntity(WorldRenderContext context, Replay replay, IEntity entity)
+    {
+        if (replay.actor.get())
+        {
+            this.renderActorNameTag(context, replay, entity);
+
+            return;
+        }
+
+        FilmControllerContext filmContext = getFilmControllerContext(context, replay, entity);
+
+        filmContext.transition = getTransition(entity, context.tickDelta());
+
+        FilmEntityRenderer.renderEntity(filmContext);
+    }
+
+    /**
+     * An actor replay is drawn by vanilla as a real entity, so the film controller renders nothing for
+     * it - and the name tag used to leave with the rest of the render. The tag belongs to the replay,
+     * not to the entity, so nothing else puts it up: draw it here, over the body vanilla is actually
+     * drawing (the networked actor, not the keyframed stub, so a moving actor keeps its tag on its
+     * head). No actor entity in the world means no body to label - see FrozenFilmController, which is
+     * deliberately blind to them.
+     */
+    protected void renderActorNameTag(WorldRenderContext context, Replay replay, IEntity entity)
+    {
+        Form form = entity.getForm();
+
+        /* Same conditions as the name tag of a regularly rendered replay: hidden along with the form
+         * (form.visible, animatable via keyframes) and absent in the relative mode. */
+        if (replay.nameTag.get().isEmpty() || replay.relative.get() || form == null || !form.visible.get())
+        {
+            return;
+        }
+
+        Map<String, Integer> actors = this.getActors();
+        Integer entityId = actors == null ? null : actors.get(replay.getId());
+        World world = MinecraftClient.getInstance().world;
+        Entity actor = entityId == null || world == null ? null : world.getEntityById(entityId);
+
+        if (actor == null)
+        {
+            return;
+        }
+
+        float transition = context.tickDelta();
+
+        /* Vanilla's own render position for this entity (see WorldRenderer#render), so the tag sits
+         * exactly above the body instead of above the keyframe the server sent it to. */
+        double x = Lerps.lerp(actor.lastRenderX, actor.getX(), transition);
+        double y = Lerps.lerp(actor.lastRenderY, actor.getY(), transition);
+        double z = Lerps.lerp(actor.lastRenderZ, actor.getZ(), transition);
+
+        BlockPos pos = BlockPos.ofFloored(x, y + 0.5D, z);
+        int sky = world.getLightLevel(LightType.SKY, pos);
+        int torch = world.getLightLevel(LightType.BLOCK, pos);
+        int light = LightmapTextureManager.pack(torch, sky);
+
+        Camera camera = context.camera();
+        MatrixStack stack = context.matrixStack();
+
+        stack.push();
+        stack.translate(x - camera.getPos().x, y - camera.getPos().y, z - camera.getPos().z);
+
+        FilmEntityRenderer.renderNameTag(entity, Text.literal(StringUtils.processColoredText(replay.nameTag.get())), stack, context.consumers(), light);
+
+        stack.pop();
+    }
+
+    protected FilmControllerContext getFilmControllerContext(WorldRenderContext context, Replay replay, IEntity entity)
+    {
+        return FilmControllerContext.instance
+            .setup(this.entities, entity, replay, context)
+            .shadow(replay.shadow.get(), replay.shadowSize.get())
+            .nameTag(replay.nameTag.get())
+            .relative(replay.relative.get());
+    }
+
+    public void shutdown()
+    {
+        /* A live morphed player outlives the film - without this its bow would
+         * stay drawn forever after the playback stops */
+        ThirdPersonItemUse.clear();
+        ItemUseEffects.clear();
+        LivePlayerItemUse.clear();
+    }
+
+    public static enum UpdateMode
+    {
+        UPDATE, RENDER, PROPERTIES;
+    }
+}
