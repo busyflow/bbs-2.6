@@ -852,7 +852,7 @@ public class BBSSettings {
 
 		/* Features owning a single option each - a category per switch would mean
 		 * a row in the settings list per switch, so they share one. */
-		builder.category("fresh", Icons.CONSOLE);
+		builder.category("extra", Icons.CONSOLE);
 		crowdPreviewCount = builder.getInt("crowd_preview_count", 500, 0, 100000);
 
 		builder.category("misc", Icons.MORE);
