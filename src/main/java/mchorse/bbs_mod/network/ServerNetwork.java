@@ -414,6 +414,15 @@ public class ServerNetwork
                 }
 
                 sendStopFilm(player, filmId);
+
+                /* RESTART leaves the editor's server player paused. During an export, prepare
+                 * just the crowd now so its expensive full-size spawn runs inside the configured
+                 * delay rather than on the first captured tick. sendStopFilm must come first: it
+                 * clears the client's old crowd ids before the preload announces the new ones. */
+                if (actionPlayer != null)
+                {
+                    actionPlayer.preloadCrowdsForExport();
+                }
             }
             else if (state == ActionState.STOP)
             {
@@ -640,6 +649,15 @@ public class ServerNetwork
                     packetByteBuf.writeString(filmId);
                     packetByteBuf.writeBoolean(withCamera);
                 });
+
+                /* Spawn the crowd right now during an export, so its cost lands inside the
+                 * configured export delay instead of the first recorded frames. */
+                ActionPlayer actionPlayer = BBSMod.getActions().getPlayer(filmId);
+
+                if (actionPlayer != null)
+                {
+                    actionPlayer.preloadCrowdsForExport();
+                }
             }
         }
         catch (Exception e)
@@ -663,6 +681,13 @@ public class ServerNetwork
                     packetByteBuf.writeString(filmId);
                     packetByteBuf.writeBoolean(withCamera);
                 });
+
+                ActionPlayer actionPlayer = BBSMod.getActions().getPlayer(filmId);
+
+                if (actionPlayer != null)
+                {
+                    actionPlayer.preloadCrowdsForExport();
+                }
             }
         }
         catch (Exception e)

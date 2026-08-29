@@ -68,6 +68,11 @@ import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import mchorse.bbs_mod.actions.types.area.ValueAreaCells;
+import mchorse.bbs_mod.ui.film.clips.area.AreaBrush;
+import net.minecraft.util.math.BlockPos;
 import mchorse.bbs_mod.actions.crowd.CrowdWalk;
 import mchorse.bbs_mod.actions.types.crowd.CrowdBehaviorActionClip;
 import mchorse.bbs_mod.actions.types.crowd.CrowdFormation;
@@ -1824,6 +1829,7 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
         this.controller.renderFrame(context);
         this.renderCrowdRadius(context);
+        this.renderArea(context);
         this.renderCrowdWalkPoles(context);
     }
 
@@ -1888,6 +1894,120 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
         RenderSystem.disableBlend();
         RenderSystem.disableDepthTest();
+    }
+
+    /**
+     * Outline a painted crowd area, cell edge by cell edge.
+     *
+     * <p>Segments are drawn slightly oversized and so overlap at their ends; that overlap is what
+     * makes corners meet, since two perpendicular segments that stop exactly at the corner leave a
+     * square hole at every turn, and a hand-painted edge is nothing but turns.</p>
+     */
+    private void renderArea(WorldRenderContext context)
+    {
+        Crowd crowd = CrowdSelection.get();
+
+        /* Only the crowd whose replay is selected. The outline belongs to the thing being
+         * edited, so it goes away with the selection - left up while another replay is being
+         * worked on it is just a fence across the shot. */
+        if (crowd == null || crowd.getFormation() != CrowdFormation.PAINT)
+        {
+            return;
+        }
+
+        /* Hidden by choice, but never while the brush is in hand: painting at ground you cannot
+         * see the edge of is the one time the outline is load-bearing. */
+        if (!crowd.showOutline.get() && !AreaBrush.isArmed())
+        {
+            return;
+        }
+
+        Long2IntOpenHashMap cells = crowd.getCells();
+        Vec3d camera = context.camera().getPos();
+        MatrixStack stack = context.matrixStack();
+        BufferBuilder builder = Tessellator.getInstance().getBuffer();
+
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        /* The outline is a flat strip lying on the ground, so it has one facing and the camera
+         * looks at it from above OR below depending on where the shot is. A single winding would
+         * simply vanish from one of those. */
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+        builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+
+        float half = 0.08F;
+
+        for (Long2IntMap.Entry entry : cells.long2IntEntrySet())
+        {
+            long key = entry.getLongKey();
+            int x = ValueAreaCells.keyX(key);
+            int z = ValueAreaCells.keyZ(key);
+            /* A hair above the block it covers, or it fights the ground's own top face. */
+            float y = (float) (entry.getIntValue() + 1.02D - camera.y);
+            float x1 = (float) (x - camera.x);
+            float z1 = (float) (z - camera.z);
+            float x2 = x1 + 1F;
+            float z2 = z1 + 1F;
+
+            if (!cells.containsKey(ValueAreaCells.key(x - 1, z)))
+            {
+                this.areaLine(builder, stack, x1 - half, z1 - half, x1 + half, z2 + half, y);
+            }
+
+            if (!cells.containsKey(ValueAreaCells.key(x + 1, z)))
+            {
+                this.areaLine(builder, stack, x2 - half, z1 - half, x2 + half, z2 + half, y);
+            }
+
+            if (!cells.containsKey(ValueAreaCells.key(x, z - 1)))
+            {
+                this.areaLine(builder, stack, x1 - half, z1 - half, x2 + half, z1 + half, y);
+            }
+
+            if (!cells.containsKey(ValueAreaCells.key(x, z + 1)))
+            {
+                this.areaLine(builder, stack, x1 - half, z2 - half, x2 + half, z2 + half, y);
+            }
+        }
+
+        /* Where the next stroke would land, so the brush size is something you can see rather
+         * than a number you have to guess at. */
+        BlockPos hovered = AreaBrush.getHovered();
+
+        if (hovered != null)
+        {
+            int radius = AreaBrush.getHoveredRadius();
+            float y = (float) (hovered.getY() + 1.05D - camera.y);
+            float cx = (float) (hovered.getX() + 0.5D - camera.x);
+            float cz = (float) (hovered.getZ() + 0.5D - camera.z);
+            int segments = (int) MathUtils.clamp(radius * 8, 32, 160);
+            float r = AreaBrush.isErasing() ? 1F : 0.3F;
+            float g = AreaBrush.isErasing() ? 0.3F : 1F;
+
+            for (int i = 0; i < segments; i++)
+            {
+                double a1 = i / (double) segments * Math.PI * 2D;
+                double a2 = (i + 1) / (double) segments * Math.PI * 2D;
+
+                Draw.fillBoxTo(builder, stack,
+                    (float) (cx + Math.cos(a1) * radius), y, (float) (cz + Math.sin(a1) * radius),
+                    (float) (cx + Math.cos(a2) * radius), y, (float) (cz + Math.sin(a2) * radius),
+                    0.06F, r, g, 0.35F, 0.9F);
+            }
+        }
+
+        BufferRenderer.drawWithGlobalProgram(builder.end());
+
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+        RenderSystem.disableDepthTest();
+    }
+
+    /** One flat segment of the area outline, lying on the surface. */
+    private void areaLine(BufferBuilder builder, MatrixStack stack, float x1, float z1, float x2, float z2, float y)
+    {
+        Draw.fillQuad(builder, stack, x1, y, z1, x2, y, z1, x2, y, z2, x1, y, z2, 1F, 0.7F, 0.15F, 1F);
     }
 
     /**
