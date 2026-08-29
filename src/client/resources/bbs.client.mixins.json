@@ -48,7 +48,7 @@
         "CameraInvoker",
         "ParticleManagerInvoker",
         "ParticleMixin",
-        "LivingEntityCrowdClientBodyMixin"
+        "LivingEntityCrowdClientBodyMixin",
         "ClientPlayerInteractionManagerMixin"
     ],
     "injectors": {

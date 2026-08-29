@@ -2021,9 +2021,9 @@
     "bbs.config.extra.sprint_particles": "Sprint particles",
     "bbs.config.extra.sprint_particles-comment": "Scuff blocks under a sprinting actor. Off by default: a crowd of sprinting actors is a great many particles",
     "bbs.config.extra.recording_armor": "Record armour",
-    "bbs.config.extra.recording_armor-comment": "Off, recording leaves the four armour channels empty rather than writing whatever you happened to be wearing, so the actor is dressed by its form or by hand"
-    "bbs.ui.film.dupe_from_playhead-description": "Copy this scene with the playhead as the new tick 0 - the take is wound back rather than flattened to the pose under the cursor"
-    "bbs.ui.film.replay.toggle_visible": "Toggle replay visibility"
+    "bbs.config.extra.recording_armor-comment": "Off, recording leaves the four armour channels empty rather than writing whatever you happened to be wearing, so the actor is dressed by its form or by hand",
+    "bbs.ui.film.dupe_from_playhead-description": "Copy this scene with the playhead as the new tick 0 - the take is wound back rather than flattened to the pose under the cursor",
+    "bbs.ui.film.replay.toggle_visible": "Toggle replay visibility",
     "bbs.config.extra.orbit_attach_rotates": "Orbit turns with the replay",
     "bbs.config.extra.orbit_attach_rotates-comment": "On, an attached orbit camera is carried and turned by its replay. Off, it follows the replay in XYZ only and holds its own bearing while the subject turns"
 }
