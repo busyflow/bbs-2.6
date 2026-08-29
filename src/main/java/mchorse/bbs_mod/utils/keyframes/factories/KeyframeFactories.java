@@ -33,6 +33,11 @@ public class KeyframeFactories
     public static final ShapeKeysKeyframeFactory SHAPE_KEYS = new ShapeKeysKeyframeFactory();
     public static final ParticleSettingsKeyframeFactory PARTICLE_SETTINGS = new ParticleSettingsKeyframeFactory();
     public static final BoneConstraintKeyframeFactory BONE_CONSTRAINT = new BoneConstraintKeyframeFactory();
+    public static final CrowdLookTargetKeyframeFactory CROWD_LOOK_TARGET = new CrowdLookTargetKeyframeFactory();
+    public static final CrowdJumpKeyframeFactory CROWD_JUMP = new CrowdJumpKeyframeFactory();
+    public static final CrowdWalkKeyframeFactory CROWD_WALK = new CrowdWalkKeyframeFactory();
+    public static final CrowdTextureKeyframeFactory CROWD_TEXTURE = new CrowdTextureKeyframeFactory();
+    public static final CrowdBehaviorKeyframeFactory CROWD_BEHAVIOR = new CrowdBehaviorKeyframeFactory();
 
     public static boolean isNumeric(IKeyframeFactory factory)
     {
@@ -69,5 +74,10 @@ public class KeyframeFactories
         FACTORIES.put("shape_keys", SHAPE_KEYS);
         FACTORIES.put("particle_settings", PARTICLE_SETTINGS);
         FACTORIES.put("bone_constraint", BONE_CONSTRAINT);
+        FACTORIES.put("crowd_look_target", CROWD_LOOK_TARGET);
+        FACTORIES.put("crowd_jump", CROWD_JUMP);
+        FACTORIES.put("crowd_motion_path", CROWD_WALK);
+        FACTORIES.put("crowd_texture", CROWD_TEXTURE);
+        FACTORIES.put("crowd_behavior", CROWD_BEHAVIOR);
     }
 }

@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.network;
 
+import it.unimi.dsi.fastutil.ints.IntList;
 import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.actions.ActionManager;
 import mchorse.bbs_mod.actions.ActionPlayer;
@@ -15,6 +16,7 @@ import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.entity.GunProjectileEntity;
 import mchorse.bbs_mod.entity.IEntityFormProvider;
 import mchorse.bbs_mod.film.Film;
+import mchorse.bbs_mod.film.FilmExportState;
 import mchorse.bbs_mod.film.FilmManager;
 import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
@@ -74,6 +76,8 @@ public class ServerNetwork
     public static final Identifier CLIENT_ANIMATION_STATE_MODEL_BLOCK_TRIGGER = new Identifier(BBSMod.MOD_ID, "c16");
     public static final Identifier CLIENT_REFRESH_MODEL_BLOCKS = new Identifier(BBSMod.MOD_ID, "c17");
     public static final Identifier CLIENT_REQUEST_FILM_RESYNC = new Identifier(BBSMod.MOD_ID, "c18");
+    public static final Identifier CLIENT_CROWD_MEMBERS = new Identifier(BBSMod.MOD_ID, "c19");
+    public static final Identifier CLIENT_CROWD_PRELOAD_READY = new Identifier(BBSMod.MOD_ID, "c20");
 
     public static final Identifier SERVER_MODEL_BLOCK_FORM_PACKET = new Identifier(BBSMod.MOD_ID, "s1");
     public static final Identifier SERVER_MODEL_BLOCK_TRANSFORMS_PACKET = new Identifier(BBSMod.MOD_ID, "s2");
@@ -89,6 +93,7 @@ public class ServerNetwork
     public static final Identifier SERVER_ZOOM = new Identifier(BBSMod.MOD_ID, "s12");
     public static final Identifier SERVER_PAUSE_FILM = new Identifier(BBSMod.MOD_ID, "s13");
     public static final Identifier SERVER_APPLY_FILM_PLAYER_SETTINGS = new Identifier(BBSMod.MOD_ID, "s14");
+    public static final Identifier SERVER_EXPORT_STATE = new Identifier(BBSMod.MOD_ID, "s15");
 
     private static ServerPacketCrusher crusher = new ServerPacketCrusher();
 
@@ -107,6 +112,7 @@ public class ServerNetwork
         ServerPlayNetworking.registerGlobalReceiver(SERVER_TOGGLE_FILM, (server, player, handler, buf, responder) -> handleToggleFilm(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_ACTION_CONTROL, (server, player, handler, buf, responder) -> handleActionControl(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_FILM_DATA_SYNC, (server, player, handler, buf, responder) -> handleSyncData(server, player, buf));
+        ServerPlayNetworking.registerGlobalReceiver(SERVER_EXPORT_STATE, (server, player, handler, buf, responder) -> handleExportState(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_PLAYER_TP, (server, player, handler, buf, responder) -> handleTeleportPlayer(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_ANIMATION_STATE_TRIGGER, (server, player, handler, buf, responder) -> handleAnimationStateTriggerPacket(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_SHARED_FORM, (server, player, handler, buf, responder) -> handleSharedFormPacket(server, player, buf));
@@ -442,6 +448,13 @@ public class ServerNetwork
         });
     }
 
+    private static void handleExportState(MinecraftServer server, ServerPlayerEntity player, PacketByteBuf buf)
+    {
+        boolean exporting = buf.readBoolean();
+
+        server.execute(() -> FilmExportState.set(player.getUuid(), exporting));
+    }
+
     private static void handleTeleportPlayer(MinecraftServer server, ServerPlayerEntity player, PacketByteBuf buf)
     {
         if (!PermissionUtils.arePanelsAllowed(server, player))
@@ -762,6 +775,42 @@ public class ServerNetwork
         }
 
         ServerPlayNetworking.send(player, CLIENT_ACTORS, buf);
+    }
+
+    /**
+     * Tell every client which entities are crowd members.
+     *
+     * <p>The server marks them with a command tag, which is never sent anywhere - and the client
+     * is where the crowd is drawn, and where vanilla decides a body's facing for itself rather
+     * than from anything the server said. Sent whole rather than as changes, and only when a
+     * crowd is spawned or cleared, which is the only time the answer moves.</p>
+     */
+    public static void sendCrowdMembers(ServerWorld world, IntList ids)
+    {
+        for (ServerPlayerEntity player : world.getPlayers())
+        {
+            /* A fresh buffer each time: sending one reads it to the end, and the next player
+             * would get an empty crowd. */
+            PacketByteBuf buf = PacketByteBufs.create();
+
+            buf.writeInt(ids.size());
+
+            for (int i = 0; i < ids.size(); i++)
+            {
+                buf.writeInt(ids.getInt(i));
+            }
+
+            ServerPlayNetworking.send(player, CLIENT_CROWD_MEMBERS, buf);
+        }
+    }
+
+    /** Tell the exporting client that every initial crowd member has been spawned and announced. */
+    public static void sendCrowdPreloadReady(ServerPlayerEntity player, String filmId)
+    {
+        PacketByteBuf buf = PacketByteBufs.create();
+
+        buf.writeString(filmId);
+        ServerPlayNetworking.send(player, CLIENT_CROWD_PRELOAD_READY, buf);
     }
 
     public static void sendGunProperties(ServerPlayerEntity player, GunProjectileEntity projectile)

@@ -344,6 +344,20 @@ public class UIPropTransform extends UITransform
         return this.enableHotkeys(() -> true);
     }
 
+    /** Translation-only hotkeys for point editors that have no scale or rotation data. */
+    public UIPropTransform enableTranslateHotkeys()
+    {
+        IKey category = UIKeys.TRANSFORMS_KEYS_CATEGORY;
+        Supplier<Boolean> active = () -> this.editing;
+
+        this.keys().register(Keys.TRANSFORMATIONS_TRANSLATE, () -> this.enableMode(TransformOp.TRANSLATE)).category(category);
+        this.keys().register(Keys.TRANSFORMATIONS_X, () -> this.setEditingAxis(Axis.X)).active(active).category(category);
+        this.keys().register(Keys.TRANSFORMATIONS_Y, () -> this.setEditingAxis(Axis.Y)).active(active).category(category);
+        this.keys().register(Keys.TRANSFORMATIONS_Z, () -> this.setEditingAxis(Axis.Z)).active(active).category(category);
+
+        return this;
+    }
+
     public UIPropTransform enableHotkeys(Supplier<Boolean> enabled)
     {
         IKey category = UIKeys.TRANSFORMS_KEYS_CATEGORY;
