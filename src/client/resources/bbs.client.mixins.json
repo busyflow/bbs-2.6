@@ -48,7 +48,8 @@
         "CameraInvoker",
         "ParticleManagerInvoker",
         "ParticleMixin",
-        "LivingEntityCrowdClientBodyMixin"
+        "LivingEntityCrowdClientBodyMixin",
+        "ClientPlayerInteractionManagerMixin"
     ],
     "injectors": {
         "defaultRequire": 1

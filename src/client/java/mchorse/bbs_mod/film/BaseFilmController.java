@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import mchorse.bbs_mod.client.renderer.ItemUseEffects;
 import mchorse.bbs_mod.client.renderer.LivePlayerItemUse;
+import mchorse.bbs_mod.client.renderer.SprintEffects;
 import mchorse.bbs_mod.client.renderer.ThirdPersonItemUse;
 import mchorse.bbs_mod.cubic.animation.ItemUsePose;
 import mchorse.bbs_mod.entity.ActorEntity;
@@ -170,6 +171,10 @@ public abstract class BaseFilmController
                  * is only answered while drawing, so vanilla's own tick spits
                  * nothing for them either (see LivePlayerItemUse). */
                 ItemUseEffects.tick(replay, entity, replayTicks);
+
+                /* Same reason: vanilla scuffs the ground from Entity#move, and a stub is placed
+                 * rather than moved, so the sprint never reaches that code. */
+                SprintEffects.tick(entity, replayTicks);
 
                 Map<String, Integer> actors = this.getActors();
 
