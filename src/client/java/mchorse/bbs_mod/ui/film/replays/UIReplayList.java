@@ -110,6 +110,13 @@ public class UIReplayList extends UIList<ReplayListEntry>
     /** Category names whose replay rows are hidden (headers stay visible). */
     private final Set<String> collapsedCategories = new HashSet<>();
 
+    /** Disabled replays (and fully-off groups) read in red rather than a dim grey, selected or not. */
+    private static final int DISABLED_COLOR = 0xff5555;
+    private static final int DISABLED_HOVER_COLOR = 0xff8888;
+
+    /** Size of the per-group on/off eye on a group header, at the row's right edge. */
+    private static final int GROUP_TOGGLE_SIZE = 16;
+
     /** Set while building the context menu when the cursor is on a category folder row. */
     private String contextFolderCategoryName;
 
@@ -251,6 +258,9 @@ public class UIReplayList extends UIList<ReplayListEntry>
             .inside()
             .label(UIKeys.SCENE_REPLAYS_CONTEXT_DUPE)
             .active(this::hasReplaySelection)
+            .category(UIKeys.FILM_REPLAY_TITLE);
+        this.keys().register(Keys.REPLAYS_TOGGLE_VISIBLE, this::toggleReplayVisibility)
+            .inside()
             .category(UIKeys.FILM_REPLAY_TITLE);
         this.keys().register(Keys.REPLAYS_SELECT_ALL, this::selectAllReplays)
             .inside()
@@ -737,6 +747,15 @@ public class UIReplayList extends UIList<ReplayListEntry>
                 {
                     String name = Replay.normalizeCategory(entry.folderName);
 
+                    /* The eye at the right edge flips the whole group off/on; anywhere else on the
+                     * header still folds it, which is what the header did before the eye existed. */
+                    if (context.mouseX >= this.area.x + this.area.w - GROUP_TOGGLE_SIZE - 4)
+                    {
+                        this.setGroupEnabled(name, this.isGroupDisabled(name));
+
+                        return true;
+                    }
+
                     if (this.collapsedCategories.contains(name))
                     {
                         this.collapsedCategories.remove(name);
@@ -781,6 +800,136 @@ public class UIReplayList extends UIList<ReplayListEntry>
     }
 
     /** The caret runs from where a replay row's name starts, so a drop into a category reads as one. */
+    /** Every replay in a group, by its normalized name. */
+    private List<Replay> groupReplays(String normalizedName)
+    {
+        List<Replay> out = new ArrayList<>();
+        Film film = this.panel == null ? null : this.panel.getData();
+
+        if (film == null)
+        {
+            return out;
+        }
+
+        for (Replay r : film.replays.getList())
+        {
+            if (normalizedName.equals(Replay.normalizeCategory(r.category.get())))
+            {
+                out.add(r);
+            }
+        }
+
+        return out;
+    }
+
+    /** True when a group holds replays and every one is disabled - the group itself reads as off. */
+    private boolean isGroupDisabled(String normalizedName)
+    {
+        List<Replay> replays = this.groupReplays(normalizedName);
+
+        if (replays.isEmpty())
+        {
+            return false;
+        }
+
+        for (Replay r : replays)
+        {
+            if (r.enabled.get())
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Turn a whole group on or off in one go - every replay inside follows. */
+    private void setGroupEnabled(String normalizedName, boolean enabled)
+    {
+        List<Replay> replays = this.groupReplays(normalizedName);
+
+        if (replays.isEmpty())
+        {
+            return;
+        }
+
+        for (Replay r : replays)
+        {
+            r.enabled.set(enabled);
+        }
+
+        if (this.panel != null)
+        {
+            this.panel.getController().createEntities();
+        }
+
+        this.update();
+    }
+
+    /**
+     * Flip visibility, same effect as the Enabled toggle. Acts on whatever the cursor is over - a
+     * single replay, or every replay in a group when over its header - regardless of the selection.
+     * All on turns them off, else on.
+     */
+    private void toggleReplayVisibility()
+    {
+        List<Replay> targets = new ArrayList<>();
+        UIContext context = this.getContext();
+
+        if (context != null && this.area.isInside(context))
+        {
+            int index = this.scroll.getIndex(context.mouseX, context.mouseY);
+
+            if (this.exists(index))
+            {
+                ReplayListEntry entry = this.list.get(index);
+
+                if (entry.isReplay())
+                {
+                    targets.add(entry.replay);
+                }
+                else
+                {
+                    targets.addAll(this.groupReplays(Replay.normalizeCategory(entry.folderName)));
+                }
+            }
+        }
+
+        /* Only ever act on what the cursor is actually over. No falling back to the selection -
+         * that made the bind fire on a right-click anywhere in the menu and toggle whatever replay
+         * happened to be selected. */
+        if (targets.isEmpty())
+        {
+            return;
+        }
+
+        boolean allOn = true;
+
+        for (Replay replay : targets)
+        {
+            allOn &= replay.enabled.get();
+        }
+
+        for (Replay replay : targets)
+        {
+            replay.enabled.set(!allOn);
+        }
+
+        if (this.panel != null)
+        {
+            this.panel.getController().createEntities();
+
+            List<Replay> selected = this.getSelectedReplays();
+
+            if (!selected.isEmpty() && targets.contains(selected.get(0)))
+            {
+                this.panel.replayEditor.replayProperties.setReplay(selected.get(0));
+            }
+        }
+
+        this.update();
+    }
+
     @Override
     protected int dropInset(ReplayListEntry element)
     {
@@ -1921,7 +2070,19 @@ public class UIReplayList extends UIList<ReplayListEntry>
             Replay replay = film.replays.addReplay();
 
             BaseValue.edit(replay, (r) -> r.fromData(replayType));
-            replay.category.set("");
+
+            /* Keep the replay's group so copied groups rebuild when pasted into another film;
+             * register the name too, so a group that came over empty still shows as a folder.
+             * 2.6 cleared the category here instead, which is why a pasted group arrived flat. */
+            String cat = Replay.normalizeCategory(replay.category.get());
+
+            if (!cat.isEmpty())
+            {
+                Set<String> names = new HashSet<>(film.replayCategoryNames.get());
+
+                names.add(cat);
+                film.replayCategoryNames.set(names);
+            }
 
             last = replay;
         }
@@ -2240,11 +2401,54 @@ public class UIReplayList extends UIList<ReplayListEntry>
         {
             boolean collapsed = this.collapsedCategories.contains(Replay.normalizeCategory(element.folderName));
 
+            boolean groupOff = this.isGroupDisabled(Replay.normalizeCategory(element.folderName));
+
             context.batcher.icon(collapsed ? Icons.ARROW_RIGHT : Icons.ARROW_DOWN, x, y);
 
-            super.renderElementPart(context, element, i, x + 12, y, hover, selected);
+            /* A whole group whose replays are all off reads in red, like the replays themselves. */
+            int color = groupOff
+                ? (hover ? DISABLED_HOVER_COLOR : DISABLED_COLOR)
+                : (hover ? Colors.HIGHLIGHT : Colors.WHITE);
+
+            context.batcher.textShadow(this.elementToString(context, i, element), x + 12 + 4, y + (this.scroll.scrollItemSize - context.batcher.getFont().getHeight()) / 2, color);
+
+            /* The eye at the row's right edge switches the group off or on - every replay in it. */
+            context.batcher.icon(groupOff ? Icons.INVISIBLE : Icons.VISIBLE, this.area.x + this.area.w - GROUP_TOGGLE_SIZE - 4, y);
 
             return;
+        }
+
+        /* A tree that descends from the group header, with a horizontal branch reaching out to
+         * every replay in the group. The trunk runs unbroken through each row and stops at the last
+         * replay's branch, so the group's members read as hanging off it.
+         *
+         * Drawn in the UI's primary colour rather than the playhead's: this is chrome describing
+         * the list's shape, and in the playhead colour it read as though it meant the cursor. */
+        if (element.indent > 0)
+        {
+            int lineColor = Colors.A100 | BBSSettings.primaryColor.get();
+            int lineX = x + 5;
+            int top = y;
+            int mid = y + this.scroll.scrollItemSize / 2;
+            int bottom = y + this.scroll.scrollItemSize;
+
+            /* This row is the group's last when the next visible row is not a replay at the same
+             * indent (a following group header, a root replay, or the end of the list). */
+            boolean lastInGroup = !(this.exists(i + 1)
+                && this.list.get(i + 1).isReplay()
+                && this.list.get(i + 1).indent == element.indent);
+
+            /* Trunk: the upper half always joins up to the row above; the lower half continues down
+             * to the next member, but the last member ends at its own branch - an elbow, not a tee. */
+            context.batcher.box(lineX, top, lineX + 1, mid, lineColor);
+
+            if (!lastInGroup)
+            {
+                context.batcher.box(lineX, mid, lineX + 1, bottom, lineColor);
+            }
+
+            /* Branch out to this replay. */
+            context.batcher.box(lineX, mid, x + element.indent - 2, mid + 1, lineColor);
         }
 
         x += element.indent;
@@ -2257,7 +2461,9 @@ public class UIReplayList extends UIList<ReplayListEntry>
         }
         else
         {
-            context.batcher.textShadow(this.elementToString(context, i, element), x + 4, y + (this.scroll.scrollItemSize - context.batcher.getFont().getHeight()) / 2, hover ? Colors.mulRGB(Colors.HIGHLIGHT, 0.75F) : Colors.GRAY);
+            /* Disabled reads red, whether or not the row is selected (the selection box is drawn
+             * behind this by the base list), so a turned-off replay is obvious either way. */
+            context.batcher.textShadow(this.elementToString(context, i, element), x + 4, y + (this.scroll.scrollItemSize - context.batcher.getFont().getHeight()) / 2, hover ? DISABLED_HOVER_COLOR : DISABLED_COLOR);
         }
 
         Form form = replay.form.get();
