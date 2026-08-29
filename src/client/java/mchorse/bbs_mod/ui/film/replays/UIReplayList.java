@@ -12,6 +12,8 @@ import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.film.Film;
+import mchorse.bbs_mod.film.crowds.Crowd;
+import mchorse.bbs_mod.forms.forms.CrowdForm;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.film.replays.Replays;
@@ -1850,12 +1852,31 @@ public class UIReplayList extends UIList<ReplayListEntry>
     {
         MapType replays = new MapType();
         ListType replayList = new ListType();
+        ListType crowdList = new ListType();
 
         replays.put("replays", replayList);
+        replays.put("crowds", crowdList);
+
+        Film film = this.panel.getData();
+        java.util.Set<String> seenTags = new java.util.HashSet<>();
 
         for (Replay replay : this.getSelectedReplays())
         {
             replayList.add(replay.toData());
+
+            /* A crowd form names its crowd by tag; the armour, the BBS-model toggle, the chosen
+             * form and the rest live on the film's crowd, not the form. Carry that crowd along so
+             * a replay pasted into another film rebuilds it instead of pointing at nothing. */
+            if (film != null && replay.form.get() instanceof CrowdForm crowdForm)
+            {
+                String tag = crowdForm.crowd.get();
+                Crowd crowd = film.crowds.byTag(tag);
+
+                if (crowd != null && seenTags.add(tag))
+                {
+                    crowdList.add(crowd.toData());
+                }
+            }
         }
 
         return replays;
@@ -1877,6 +1898,21 @@ public class UIReplayList extends UIList<ReplayListEntry>
     public void pasteReplay(MapType data)
     {
         Film film = this.panel.getData();
+
+        /* Rebuild any crowd the copied replays drive that this film does not already have, so the
+         * armour, the BBS-model toggle and the chosen form travel with the crowd form and not just
+         * its tag. A crowd already under that tag is left alone - that is the same-film paste,
+         * where the crowd is there and shared. */
+        for (BaseType crowdType : data.getList("crowds"))
+        {
+            String tag = crowdType instanceof MapType map ? map.getString("crowd_tag") : null;
+
+            if (tag != null && !tag.isEmpty() && film.crowds.byTag(tag) == null)
+            {
+                film.crowds.addCopy(crowdType);
+            }
+        }
+
         ListType replays = data.getList("replays");
         Replay last = null;
 

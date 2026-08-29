@@ -97,6 +97,13 @@ public class TrackStyle
         /* Not an item but the pointer at one, so it stays out of both families. Without this it
          * falls through to the default blue, which is now the armour's tone. */
         COLORS.put("selected_slot", Colors.WHITE & Colors.RGB);
+
+        COLORS.put("crowd_behavior", Colors.GREEN);
+        COLORS.put("crowd_look_target", Colors.CYAN);
+        COLORS.put("crowd_jump", Colors.YELLOW);
+        COLORS.put("crowd_motion_path", Colors.MAGENTA);
+        COLORS.put("crowd_texture", Colors.ORANGE);
+        COLORS.put("crowd_color", Colors.PINK);
     }
 
 
@@ -206,6 +213,13 @@ public class TrackStyle
 
         /* Not an item but the pointer at one */
         ICONS.put("selected_slot", Icons.POINTER);
+
+        ICONS.put("crowd_behavior", Icons.SHAPES);
+        ICONS.put("crowd_look_target", Icons.VISIBLE);
+        ICONS.put("crowd_jump", Icons.VERTICAL);
+        ICONS.put("crowd_motion_path", Icons.ALL_DIRECTIONS);
+        ICONS.put("crowd_texture", Icons.MATERIAL);
+        ICONS.put("crowd_color", Icons.COLOR);
     }
 
     public static Icon icon(String key)
