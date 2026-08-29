@@ -419,6 +419,7 @@ public class UIKeys
     public static final IKey FILM_REPLAY_TAB_4 = L10n.lang("bbs.ui.film.replay.tab.4");
     public static final IKey FILM_REPLAY_TAB_5 = L10n.lang("bbs.ui.film.replay.tab.5");
     public static final IKey FILM_REPLAY_TITLE = L10n.lang("bbs.ui.film.replay.title");
+    public static final IKey FILM_REPLAY_TOGGLE_VISIBLE = L10n.lang("bbs.ui.film.replay.toggle_visible");
     public static final IKey FILM_REPLAY_ACTIONS_TIMELINE = L10n.lang("bbs.ui.film.replays.actions_timeline");
     public static final IKey FILM_REPLAY_ALL_TRACKS = L10n.lang("bbs.ui.film.replays.all_tracks");
     public static final IKey FILM_REPLAY_COLLAPSE_ALL = L10n.lang("bbs.ui.film.replays.collapse_all");

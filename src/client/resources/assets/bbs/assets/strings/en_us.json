@@ -2023,4 +2023,5 @@
     "bbs.config.extra.recording_armor": "Record armour",
     "bbs.config.extra.recording_armor-comment": "Off, recording leaves the four armour channels empty rather than writing whatever you happened to be wearing, so the actor is dressed by its form or by hand"
     "bbs.ui.film.dupe_from_playhead-description": "Copy this scene with the playhead as the new tick 0 - the take is wound back rather than flattened to the pose under the cursor"
+    "bbs.ui.film.replay.toggle_visible": "Toggle replay visibility"
 }
