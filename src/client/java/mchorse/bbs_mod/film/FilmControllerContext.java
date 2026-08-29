@@ -1,5 +1,6 @@
 package mchorse.bbs_mod.film;
 
+import mchorse.bbs_mod.actions.crowd.CrowdWalk;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
@@ -44,6 +45,8 @@ public class FilmControllerContext
     /** Draw the editing gizmo at the entity's resolved {@code form.anchor} matrix. */
     public boolean anchorGizmo;
     public boolean anchorLocal;
+    public CrowdWalk crowdMotionPoint;
+    public float crowdMotionTick;
 
     public String nameTag = "";
     public boolean relative;
@@ -64,6 +67,8 @@ public class FilmControllerContext
         this.local2 = false;
         this.anchorGizmo = false;
         this.anchorLocal = false;
+        this.crowdMotionPoint = null;
+        this.crowdMotionTick = 0F;
         this.nameTag = "";
         this.relative = false;
     }
@@ -162,6 +167,14 @@ public class FilmControllerContext
     {
         this.anchorGizmo = anchorGizmo;
         this.anchorLocal = anchorLocal;
+
+        return this;
+    }
+
+    public FilmControllerContext crowdMotionGizmo(CrowdWalk point, float tick)
+    {
+        this.crowdMotionPoint = point;
+        this.crowdMotionTick = tick;
 
         return this;
     }
