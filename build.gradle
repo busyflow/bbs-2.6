@@ -64,6 +64,17 @@ dependencies {
 
 	modImplementation "org.anarres:jcpp:1.4.14"
 	modImplementation "io.github.douira:glsl-transformer:2.0.0-pre13"
+
+    testImplementation platform("org.junit:junit-bom:5.10.2")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+test {
+	useJUnitPlatform()
+	javaLauncher = javaToolchains.launcherFor {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
 }
 
 processResources {

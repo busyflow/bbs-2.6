@@ -13,7 +13,12 @@
         "LivingEntityMixin",
         "ServerPlayerEntityMixin",
         "LimbAnimatorAccessor",
-        "LevelPropertiesAccessor"
+        "LevelPropertiesAccessor",
+        "EntityCrowdBoundsMixin",
+        "LivingEntityCrowdCostMixin",
+        "LivingEntityCrowdBodyMixin",
+        "LookControlCrowdMixin",
+        "EntityViewCrowdCollisionMixin"
     ],
     "injectors": {
         "defaultRequire": 1
