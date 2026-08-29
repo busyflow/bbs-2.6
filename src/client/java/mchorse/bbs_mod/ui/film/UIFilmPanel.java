@@ -69,6 +69,7 @@ import mchorse.bbs_mod.utils.clips.Clips;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
+import mchorse.bbs_mod.utils.keyframes.KeyframeShift;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.KeyframeSegment;
 import mchorse.bbs_mod.utils.presets.PresetManager;
@@ -1127,9 +1128,7 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
             {
                 if (!channel.isEmpty())
                 {
-                    KeyframeChannel newChannel = (KeyframeChannel) copy.keyframes.get(channel.getId());
-
-                    newChannel.insert(0, channel.interpolate(tick));
+                    KeyframeShift.windBack((KeyframeChannel) copy.keyframes.get(channel.getId()), channel, tick);
                 }
             }
 
@@ -1143,12 +1142,8 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
                 }
 
                 KeyframeChannel newChannel = new KeyframeChannel(channel.getId(), channel.getFactory());
-                KeyframeSegment segment = channel.find(tick);
 
-                if (segment != null)
-                {
-                    newChannel.insert(0, segment.createInterpolated());
-                }
+                KeyframeShift.windBack(newChannel, channel, tick);
 
                 if (!newChannel.isEmpty())
                 {
