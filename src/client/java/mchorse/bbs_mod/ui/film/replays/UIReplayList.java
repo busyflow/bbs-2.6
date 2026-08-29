@@ -33,6 +33,7 @@ import mchorse.bbs_mod.settings.values.core.ValueForm;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
+import mchorse.bbs_mod.ui.utils.keys.Keybind;
 import mchorse.bbs_mod.ui.film.UIFilmPanel;
 import mchorse.bbs_mod.ui.forms.UIFormPalette;
 import mchorse.bbs_mod.ui.framework.UIContext;
@@ -116,6 +117,12 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
     /** Size of the per-group on/off eye on a group header, at the row's right edge. */
     private static final int GROUP_TOGGLE_SIZE = 16;
+
+    /**
+     * The visibility toggle, kept so a mouse binding can be honoured before the list claims the
+     * click for itself.
+     */
+    private Keybind toggleVisibleKeybind;
 
     /** Set while building the context menu when the cursor is on a category folder row. */
     private String contextFolderCategoryName;
@@ -259,7 +266,7 @@ public class UIReplayList extends UIList<ReplayListEntry>
             .label(UIKeys.SCENE_REPLAYS_CONTEXT_DUPE)
             .active(this::hasReplaySelection)
             .category(UIKeys.FILM_REPLAY_TITLE);
-        this.keys().register(Keys.REPLAYS_TOGGLE_VISIBLE, this::toggleReplayVisibility)
+        this.toggleVisibleKeybind = this.keys().register(Keys.REPLAYS_TOGGLE_VISIBLE, this::toggleReplayVisibility)
             .inside()
             .category(UIKeys.FILM_REPLAY_TITLE);
         this.keys().register(Keys.REPLAYS_SELECT_ALL, this::selectAllReplays)
@@ -732,6 +739,19 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
         if (this.scroll.mouseClicked(context))
         {
+            return true;
+        }
+
+        /* Ahead of everything else this list does with a click. Bound to a mouse button, the
+         * toggle would otherwise never fire on the left one: selection consumes that button here,
+         * and the keybind dispatch only runs on what subMouseClicked leaves behind. Returning true
+         * is also what stops it firing a second time through that dispatch. */
+        if (this.toggleVisibleKeybind != null
+            && this.area.isInside(context)
+            && this.toggleVisibleKeybind.checkMouse(context.mouseButton, true))
+        {
+            this.toggleReplayVisibility();
+
             return true;
         }
 
