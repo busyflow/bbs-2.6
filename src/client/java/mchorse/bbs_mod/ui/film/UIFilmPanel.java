@@ -61,6 +61,21 @@ import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.presets.UICopyPasteController;
 import mchorse.bbs_mod.utils.CollectionUtils;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.BufferRenderer;
+import net.minecraft.client.render.GameRenderer;
+import net.minecraft.client.render.Tessellator;
+import net.minecraft.client.render.VertexFormat;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.math.MatrixStack;
+import mchorse.bbs_mod.actions.crowd.CrowdWalk;
+import mchorse.bbs_mod.actions.types.crowd.CrowdBehaviorActionClip;
+import mchorse.bbs_mod.actions.types.crowd.CrowdFormation;
+import mchorse.bbs_mod.actions.types.crowd.CrowdUtils;
+import mchorse.bbs_mod.film.crowds.Crowd;
+import mchorse.bbs_mod.forms.forms.CrowdForm;
+import mchorse.bbs_mod.ui.film.crowds.CrowdSelection;
+import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.PlayerUtils;
 import mchorse.bbs_mod.utils.Timer;
@@ -1808,6 +1823,159 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
         }
 
         this.controller.renderFrame(context);
+        this.renderCrowdRadius(context);
+        this.renderCrowdWalkPoles(context);
+    }
+
+    /**
+     * Ring the ground where a selected crowd clip reaches. The radius is read back from the
+     * same formation maths the spawner uses, so this is a readout and not another set of
+     * numbers to keep in sync - a donut also gets its inner ring drawn.
+     */
+    private void renderCrowdRadius(WorldRenderContext context)
+    {
+        if (this.data == null)
+        {
+            return;
+        }
+
+        Crowd crowd = CrowdSelection.get();
+        double outer;
+        double inner = 0D;
+        Replay replay;
+
+        if (crowd != null)
+        {
+            CrowdFormation formation = crowd.getFormation();
+
+            outer = CrowdUtils.formationRadius(formation, crowd.count.get(), crowd.spacing.get(), crowd.holeRadius.get());
+            inner = CrowdUtils.formationHole(formation, crowd.holeRadius.get());
+
+            /* A crowd names its own anchor now, rather than borrowing whichever replay the
+             * editor happened to have open. */
+            replay = CrowdUtils.getReplay(this.data, crowd.anchor.get());
+        }
+        else if (this.replayEditor != null && this.actionEditor != null && this.actionEditor.isVisible()
+            && this.actionEditor.getClip() instanceof CrowdBehaviorActionClip clip)
+        {
+            outer = clip.wanderRadius.get();
+            replay = this.replayEditor.getReplay();
+        }
+        else
+        {
+            return;
+        }
+
+        if (replay == null)
+        {
+            return;
+        }
+
+        Vec3d center = CrowdUtils.replayPosition(replay, this.getCursor());
+        Vec3d camera = context.camera().getPos();
+
+        /* Drawn without depth so the ring stays visible through terrain - at a hundred blocks
+         * out it is usually behind a hill, and the whole point is to see where the crowd lands. */
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+
+        this.renderCrowdRing(context, center.subtract(camera), outer, 0.1F, 0.8F, 1F);
+
+        if (inner > 0.05D)
+        {
+            this.renderCrowdRing(context, center.subtract(camera), inner, 1F, 0.65F, 0.1F);
+        }
+
+        RenderSystem.disableBlend();
+        RenderSystem.disableDepthTest();
+    }
+
+    /**
+     * A pole standing at every crowd walk waypoint.
+     *
+     * <p>A waypoint is a position in an otherwise empty field, and the keyframe holding it says
+     * nothing about where it is until you scrub onto it. A pole is the cheapest way to see the
+     * whole route at once - which one is where, whether two sit on top of each other, whether one
+     * landed inside a building.</p>
+     */
+    private void renderCrowdWalkPoles(WorldRenderContext context)
+    {
+        Replay replay = this.replayEditor == null ? null : this.replayEditor.getReplay();
+
+        if (replay == null || !(replay.form.get() instanceof CrowdForm) || replay.keyframes.crowdWalk.isEmpty())
+        {
+            return;
+        }
+
+        Vec3d camera = context.camera().getPos();
+        MatrixStack stack = context.matrixStack();
+        BufferBuilder builder = Tessellator.getInstance().getBuffer();
+
+        RenderSystem.disableDepthTest();
+        RenderSystem.enableBlend();
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+        builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+
+        for (Keyframe<CrowdWalk> keyframe : (List<Keyframe<CrowdWalk>>) replay.keyframes.crowdWalk.getKeyframes())
+        {
+            CrowdWalk walk = keyframe.getValue();
+
+            if (walk == null || !walk.showPoint)
+            {
+                continue;
+            }
+
+            double x = walk.x - camera.x;
+            double y = walk.y - camera.y;
+            double z = walk.z - camera.z;
+
+            Draw.fillBoxTo(builder, stack,
+                (float) x, (float) y, (float) z,
+                (float) x, (float) (y + CROWD_WALK_POLE_HEIGHT), (float) z,
+                CROWD_WALK_POLE_THICKNESS, 1F, 1F, 1F, 0.8F);
+        }
+
+        BufferRenderer.drawWithGlobalProgram(builder.end());
+
+        RenderSystem.disableBlend();
+        RenderSystem.enableCull();
+        RenderSystem.enableDepthTest();
+    }
+
+    /** Tall enough to clear a villager and be seen over a crowd, thin enough not to hide one. */
+    public static final float CROWD_WALK_POLE_HEIGHT = 3F;
+    private static final float CROWD_WALK_POLE_THICKNESS = 0.05F;
+
+    private void renderCrowdRing(WorldRenderContext context, Vec3d center, double radius, float r, float g, float b)
+    {
+        if (radius <= 0.05D)
+        {
+            return;
+        }
+
+        /* Segment count follows the radius so a hundred-block ring still reads as a circle
+         * rather than a polygon, but a small one does not pay for detail nobody can see. */
+        int segments = (int) MathUtils.clamp(radius * 4D, 64D, 512D);
+        float thickness = (float) Math.max(0.08D, radius * 0.004D);
+        MatrixStack stack = context.matrixStack();
+        BufferBuilder builder = Tessellator.getInstance().getBuffer();
+
+        RenderSystem.setShader(GameRenderer::getPositionColorProgram);
+        builder.begin(VertexFormat.DrawMode.TRIANGLES, VertexFormats.POSITION_COLOR);
+
+        for (int i = 0; i < segments; i++)
+        {
+            double a1 = i / (double) segments * Math.PI * 2D;
+            double a2 = (i + 1) / (double) segments * Math.PI * 2D;
+
+            Draw.fillBoxTo(builder, stack,
+                (float) (center.x + Math.cos(a1) * radius), (float) center.y, (float) (center.z + Math.sin(a1) * radius),
+                (float) (center.x + Math.cos(a2) * radius), (float) center.y, (float) (center.z + Math.sin(a2) * radius),
+                thickness, r, g, b, 0.85F);
+        }
+
+        BufferRenderer.drawWithGlobalProgram(builder.end());
     }
 
     /* IUICameraWorkDelegate implementation */
