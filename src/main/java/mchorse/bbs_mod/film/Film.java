@@ -2,6 +2,8 @@ package mchorse.bbs_mod.film;
 
 import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.data.types.BaseType;
+import mchorse.bbs_mod.film.crowds.CrowdReconciler;
+import mchorse.bbs_mod.film.crowds.Crowds;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.film.replays.Replays;
 import mchorse.bbs_mod.settings.values.core.ValueGroup;
@@ -29,6 +31,11 @@ public class Film extends ValueGroup
      */
     public final ValueStringKeys replayCategoryNames = new ValueStringKeys("replay_categories");
 
+    /**
+     * The crowds this film contains. Not events on anyone's timeline - things that are present
+     * over a stretch of the film, kept in line with the world by {@link CrowdReconciler}.
+     */
+    public final Crowds crowds = new Crowds("crowds");
     public final ValueFloat hp = new ValueFloat("hp", 20F);
     public final ValueFloat hunger = new ValueFloat("hunger", 20F);
     public final ValueInt xpLevel = new ValueInt("xp_level", 0);
@@ -53,6 +60,7 @@ public class Film extends ValueGroup
         this.add(this.camera);
         this.add(this.replays);
         this.add(this.replayCategoryNames);
+        this.add(this.crowds);
 
         this.add(this.hp);
         this.add(this.hunger);

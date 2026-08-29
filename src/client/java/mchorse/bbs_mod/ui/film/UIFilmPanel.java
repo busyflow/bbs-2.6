@@ -1421,12 +1421,28 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
     @Override
     public void fill(Film data)
     {
+        edited = data;
+
         this.notifyServer(ActionState.STOP);
         this.captureTimelineScroll();
         super.fill(data);
         this.restoreTimelineScroll();
         this.notifyServer(ActionState.RESTART);
     }
+
+    /**
+     * The film currently open in the editor.
+     *
+     * <p>For the few editors that are reached from inside a film but are not part of it - a form
+     * panel, say, which is equally reachable from the morph menu where there is no film at all.
+     * Static because only one film is ever open.</p>
+     */
+    public static Film getEditedFilm()
+    {
+        return edited;
+    }
+
+    private static Film edited;
 
     @Override
     protected void fillData(Film data)
