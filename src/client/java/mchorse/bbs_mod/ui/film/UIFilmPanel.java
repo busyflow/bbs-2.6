@@ -70,8 +70,6 @@ import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.util.math.MatrixStack;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
-import mchorse.bbs_mod.actions.types.area.ValueAreaCells;
-import mchorse.bbs_mod.ui.film.clips.area.AreaBrush;
 import net.minecraft.util.math.BlockPos;
 import mchorse.bbs_mod.ui.film.live.LiveKeyframeRecorder;
 import mchorse.bbs_mod.graphics.Draw;

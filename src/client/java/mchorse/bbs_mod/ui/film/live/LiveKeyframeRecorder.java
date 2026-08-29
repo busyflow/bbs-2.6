@@ -11,6 +11,9 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIKeyfram
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Records a gizmo drag onto the timeline as it happens.
  *
@@ -45,8 +48,26 @@ public class LiveKeyframeRecorder
     private BaseType before;
     private int cursorBefore;
 
-    /** Last tick written, so one tick is never written twice while frames outrun ticks. */
+    /** Last tick sampled, so one tick is never sampled twice while frames outrun ticks. */
     private int lastTick;
+
+    /**
+     * The take, held back until the drag ends.
+     *
+     * <p>Writing each sample into the channel as it was taken fed the recorder's own output back
+     * into the gesture it was recording. A drag solves as a snapshot of the transform taken when
+     * the gesture began, plus a delta measured against the gizmo's origin <em>as rendered this
+     * frame</em>. Writing a keyframe at the playhead moved the actor, which moved that origin,
+     * so the next frame measured its delta from a moved origin against a snapshot that had not
+     * moved - counting the same motion twice, again every frame. A translation ran away and a
+     * trackball rotation span.</p>
+     *
+     * <p>Held here instead, the channel is untouched for the length of the drag, the origin stays
+     * where the gesture anchored it, and the samples are exactly the motion performed.</p>
+     */
+    private final List<Sample> take = new ArrayList<>();
+
+    private record Sample(int tick, Object value) {}
 
     public boolean isRecording()
     {
@@ -116,11 +137,11 @@ public class LiveKeyframeRecorder
     }
 
     /**
-     * Write the transform's current value at {@code tick}.
+     * Take the transform's current value for {@code tick}.
      *
-     * <p>The value is copied through the channel's own factory. Inserting the live object itself
-     * would put the very instance the gizmo is still dragging into the channel, so every keyframe
-     * in the take would be the same object and the whole thing would read back as one flat pose.</p>
+     * <p>Copied through the channel's own factory rather than kept by reference: the gizmo goes on
+     * mutating that same instance for the rest of the drag, so every sample in the take would end
+     * up being the final pose and the whole thing would read back flat.</p>
      */
     private void sample(int tick)
     {
@@ -137,7 +158,7 @@ public class LiveKeyframeRecorder
             return;
         }
 
-        this.channel.insert(tick, this.channel.getFactory().copy(value));
+        this.take.add(new Sample(tick, this.channel.getFactory().copy(value)));
         this.lastTick = tick;
     }
 
@@ -158,13 +179,19 @@ public class LiveKeyframeRecorder
         KeyframeChannel channel = this.channel;
         BaseType before = this.before;
         int cursorBefore = this.cursorBefore;
-        boolean wrote = this.lastTick != -1;
+        List<Sample> take = new ArrayList<>(this.take);
 
         this.abandon();
 
-        if (!wrote)
+        if (take.isEmpty())
         {
             return;
+        }
+
+        /* The whole take at once, now the gesture is over and there is no drag left to disturb. */
+        for (Sample sample : take)
+        {
+            channel.insert(sample.tick(), sample.value());
         }
 
         BaseType after = channel.toData();
@@ -185,5 +212,6 @@ public class LiveKeyframeRecorder
         this.factory = null;
         this.before = null;
         this.lastTick = -1;
+        this.take.clear();
     }
 }

@@ -850,6 +850,8 @@ public class BBSSettings {
 
 		/* Features owning a single option each - a category per switch would mean
 		 * a row in the settings list per switch, so they share one. */
+		builder.category("extra", Icons.CONSOLE);
+
 		builder.category("misc", Icons.MORE);
 		damageControl = builder.getBoolean("damage_control", true);
 		shaderCurvesEnabled = builder.getBoolean("shader_curves", true);
