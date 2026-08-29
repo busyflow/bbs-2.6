@@ -1,6 +1,7 @@
 package mchorse.bbs_mod.film;
 
 import com.mojang.blaze3d.systems.RenderSystem;
+import mchorse.bbs_mod.actions.crowd.CrowdWalk;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.data.Point;
 import mchorse.bbs_mod.client.BBSRendering;
@@ -174,6 +175,11 @@ public class FilmEntityRenderer
             renderAnchorGizmo(entities, entity, target, defaultMatrix, cx, cy, cz, transition, context.anchorLocal, context.space, context.gizmoView, context.map, stack, gizmoFrame);
         }
 
+        if (UIBaseMenu.shouldRenderAxes() && context.crowdMotionPoint != null && context.replay != null)
+        {
+            renderCrowdMotionGizmo(context, stack);
+        }
+
         if (!relative && context.map == null && opacity > 0F && context.shadowRadius > 0F && form.visible.get())
         {
             /* Skip the shadow when the form is hidden (form.visible, animatable via keyframes): the form
@@ -232,6 +238,40 @@ public class FilmEntityRenderer
             stack.pop();
         }
 
+        RenderSystem.enableDepthTest();
+    }
+
+    private static void renderCrowdMotionGizmo(FilmControllerContext context, MatrixStack stack)
+    {
+        CrowdWalk point = context.crowdMotionPoint;
+
+        /* A waypoint is world space, not an offset from the replay. The runtime reads it that way
+         * (CrowdWalkEvaluator#positionAt returns the value untouched), the white poles draw it
+         * that way, and the gizmo writes it back that way - only this drew it with the replay's
+         * position added, which put the handle a whole replay-position away from the point it
+         * edits. Anywhere but the origin, that is a gizmo standing somewhere the crowd will never
+         * walk, next to a pole marking where it actually will. */
+        double x = point.x;
+        double y = point.y;
+        double z = point.z;
+
+        stack.push();
+        stack.translate(
+            x - context.camera.getPos().x,
+            y - context.camera.getPos().y,
+            z - context.camera.getPos().z
+        );
+
+        if (context.map == null)
+        {
+            Gizmo.INSTANCE.captureVisual(stack);
+        }
+        else
+        {
+            Gizmo.INSTANCE.renderStencil(stack);
+        }
+
+        stack.pop();
         RenderSystem.enableDepthTest();
     }
 

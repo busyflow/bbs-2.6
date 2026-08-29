@@ -41,6 +41,7 @@ import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeEditor;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframes;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIAnchorKeyframeFactory;
+import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIPoseKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UIPoseTransformKeyframeFactory;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UITransformKeyframeFactory;
@@ -320,6 +321,10 @@ public class UIReplaysEditorUtils
             return keyframeFactory.poseEditor.transform;
         }
         else if (editor.editor instanceof UIPoseTransformKeyframeFactory keyframeFactory)
+        {
+            return keyframeFactory.transform;
+        }
+        else if (editor.editor instanceof UICrowdWalkKeyframeFactory keyframeFactory)
         {
             return keyframeFactory.transform;
         }
