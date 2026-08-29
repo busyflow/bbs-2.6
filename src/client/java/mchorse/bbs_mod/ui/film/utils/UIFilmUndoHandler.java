@@ -4,6 +4,10 @@ import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.network.ClientNetwork;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
+import mchorse.bbs_mod.film.Film;
+import mchorse.bbs_mod.ui.film.utils.undo.LiveRecordingUndo;
+import mchorse.bbs_mod.settings.values.core.ValueGroup;
+import mchorse.bbs_mod.utils.undo.IUndo;
 import mchorse.bbs_mod.ui.film.UIFilmPanel;
 import mchorse.bbs_mod.ui.forms.editors.UIFormUndoHandler;
 import mchorse.bbs_mod.utils.Timer;
@@ -22,6 +26,24 @@ public class UIFilmUndoHandler extends UIFormUndoHandler
     public UIFilmUndoHandler(UIFilmPanel panel)
     {
         super(panel);
+    }
+
+    /**
+     * Put the playhead back where a live take was started from.
+     *
+     * <p>Undoing a take removes its keyframes wherever the cursor happens to be, which leaves the
+     * playhead parked at the end of a performance that no longer exists. Moving it back is what
+     * makes ctrl+Z mean "as though I never recorded that" rather than only "delete those".</p>
+     */
+    @Override
+    protected void handleUndos(IUndo<ValueGroup> undo, boolean redo)
+    {
+        super.handleUndos(undo, redo);
+
+        if (undo instanceof LiveRecordingUndo take)
+        {
+            ((UIFilmPanel) this.uiElement).setCursor(redo ? take.cursorAfter : take.cursorBefore);
+        }
     }
 
     @Override

@@ -61,6 +61,20 @@ import mchorse.bbs_mod.ui.utils.icons.Icon;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
 import mchorse.bbs_mod.ui.utils.presets.UICopyPasteController;
 import mchorse.bbs_mod.utils.CollectionUtils;
+import net.minecraft.client.render.BufferBuilder;
+import net.minecraft.client.render.BufferRenderer;
+import net.minecraft.client.render.GameRenderer;
+import net.minecraft.client.render.Tessellator;
+import net.minecraft.client.render.VertexFormat;
+import net.minecraft.client.render.VertexFormats;
+import net.minecraft.client.util.math.MatrixStack;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import mchorse.bbs_mod.actions.types.area.ValueAreaCells;
+import mchorse.bbs_mod.ui.film.clips.area.AreaBrush;
+import net.minecraft.util.math.BlockPos;
+import mchorse.bbs_mod.ui.film.live.LiveKeyframeRecorder;
+import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.PlayerUtils;
 import mchorse.bbs_mod.utils.Timer;
@@ -103,6 +117,9 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
     public UIElement main;
     public UIElement editArea;
+
+    /** Writes a gizmo drag onto the timeline while the film is playing. */
+    public final LiveKeyframeRecorder liveRecorder = new LiveKeyframeRecorder();
     public UIDockLayout dock;
     public UIFilmRecorder recorder;
     public UIFilmPreview preview;
@@ -1627,6 +1644,11 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
     @Override
     public void render(UIContext context)
     {
+        /* Ahead of everything the frame draws: a take is bounded by the drag ending, by playback
+         * stopping and by the selection changing, and sampling before any of those are acted on
+         * this frame is what keeps the last tick of a take from going missing. */
+        this.liveRecorder.update(this);
+
         if (this.lastTime == 0)
         {
             this.lastTime = System.currentTimeMillis();
