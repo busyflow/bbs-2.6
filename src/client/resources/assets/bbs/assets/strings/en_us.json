@@ -2013,5 +2013,7 @@
     "bbs.config.extra.crowd_preview_count": "Crowd preview count",
     "bbs.config.extra.crowd_preview_count-comment": "How many crowd members to spawn while building a shot; a take spawns the full count. 0 spawns them all",
     "bbs.ui.film.dupe_from_playhead": "Duplicate from playhead",
-    "bbs.ui.film.dupe_from_playhead-description": "Copy this scene with the playhead as the new tick 0 - the take is wound back rather than flattened to the pose under the cursor"
+    "bbs.ui.film.dupe_from_playhead-description": "Copy this scene with the playhead as the new tick 0 - the take is wound back rather than flattened to the pose under the cursor",
+    "bbs.config.extra.orbit_attach_rotates": "Orbit turns with the replay",
+    "bbs.config.extra.orbit_attach_rotates-comment": "On, an attached orbit camera is carried and turned by its replay. Off, it follows the replay in XYZ only and holds its own bearing while the subject turns"
 }

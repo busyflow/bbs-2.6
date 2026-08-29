@@ -32,6 +32,7 @@ import mchorse.bbs_mod.utils.keyframes.KeyframeStyle;
 public class BBSSettings {
 
 	public static ValueInt crowdPreviewCount;
+	public static ValueBoolean orbitAttachRotates;
 
 	public static final String DEFAULT_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p %NAME%.mp4";
 	public static final String DEFAULT_AUDIO_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -i %AUDIO_TRACK% -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p -c:a aac -b:a 128k -shortest %NAME%.mp4";
@@ -854,6 +855,7 @@ public class BBSSettings {
 		 * a row in the settings list per switch, so they share one. */
 		builder.category("extra", Icons.CONSOLE);
 		crowdPreviewCount = builder.getInt("crowd_preview_count", 500, 0, 100000);
+		orbitAttachRotates = builder.getBoolean("orbit_attach_rotates", true);
 
 		builder.category("misc", Icons.MORE);
 		damageControl = builder.getBoolean("damage_control", true);
