@@ -32,6 +32,7 @@ public class WorldVideoExportSession extends VideoExportSession
     /** The film being recorded (F6), used to render its audio track; {@code null} for a plain world recording (F4). */
     private Film film;
     private boolean firstTickPaused;
+    private boolean filmSeen;
 
     public String getFilmId()
     {
@@ -59,6 +60,7 @@ public class WorldVideoExportSession extends VideoExportSession
         this.filmId = filmId;
         this.film = film;
         this.firstTickPaused = false;
+        this.filmSeen = false;
 
         if (filmId != null)
         {
@@ -124,8 +126,11 @@ public class WorldVideoExportSession extends VideoExportSession
     @Override
     protected boolean shouldAbortWarmup()
     {
-        /* We are playing a film and it is no longer running (never started, or an empty film already finished). */
-        return this.filmId != null && !BBSModClient.getFilms().has(this.filmId);
+        /* We are playing a film and it is no longer running (an empty film already finished).
+         * On a server the play is a round trip, so the film is legitimately absent for the first
+         * few ticks - aborting then killed every F6 take before it ever recorded a frame, while
+         * the film went on to play as if it were being captured. */
+        return this.filmId != null && this.filmSeen && !BBSModClient.getFilms().has(this.filmId);
     }
 
     @Override
@@ -147,6 +152,8 @@ public class WorldVideoExportSession extends VideoExportSession
         {
             return false;
         }
+
+        this.filmSeen = true;
 
         if (!controller.paused)
         {
@@ -213,6 +220,7 @@ public class WorldVideoExportSession extends VideoExportSession
         this.filmId = null;
         this.film = null;
         this.firstTickPaused = false;
+        this.filmSeen = false;
     }
 
     private void applyWindowSize(VideoSize size)
