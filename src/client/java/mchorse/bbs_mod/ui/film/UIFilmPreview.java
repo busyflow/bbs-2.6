@@ -15,7 +15,9 @@ import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.ui.framework.UIScreen;
 import mchorse.bbs_mod.film.Films;
 import mchorse.bbs_mod.graphics.texture.Texture;
+import org.lwjgl.glfw.GLFW;
 import mchorse.bbs_mod.graphics.window.Window;
+import mchorse.bbs_mod.ui.film.clips.area.AreaBrush;
 import mchorse.bbs_mod.settings.ui.UISettingsOverlayPanel;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
@@ -351,6 +353,13 @@ public class UIFilmPreview extends UIElement
 
         if (area.isInside(context))
         {
+            /* Ahead of the gizmo and of form picking: an armed area brush owns dragging in the
+             * viewport, or a stroke over a replay would select it instead of painting. */
+            if (AreaBrush.click(context, area, this.panel.getCamera()))
+            {
+                return true;
+            }
+
             if (this.panel.getController().orbitGizmo.mouseClicked(context, area))
             {
                 return true;
@@ -370,6 +379,8 @@ public class UIFilmPreview extends UIElement
     @Override
     protected boolean subMouseReleased(UIContext context)
     {
+        AreaBrush.stopPainting();
+
         if (this.placementGizmo.mouseReleased(context))
         {
             return true;
@@ -420,6 +431,29 @@ public class UIFilmPreview extends UIElement
         camera.copy(this.panel.getWorldCamera());
         camera.view.set(this.panel.lastView);
         camera.projection.set(this.panel.lastProjection);
+
+        /* The brush reads the mouse button directly rather than waiting for a click event: the
+         * viewport's press is contested by the orbit camera, the gizmos and form picking, and the
+         * brush must work regardless of which of them the editor decided to hand it to. Traced
+         * against the camera the viewport was actually drawn with, which is only true once the
+         * matrices above are in. */
+        if (AreaBrush.isArmed() && this.canBeSeen())
+        {
+            boolean left = Window.isMouseButtonPressed(GLFW.GLFW_MOUSE_BUTTON_LEFT);
+            boolean right = Window.isMouseButtonPressed(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+
+            AreaBrush.hover(context, area, camera);
+
+            if (area.isInside(context) && (left || right))
+            {
+                AreaBrush.held(context, area, camera, right);
+            }
+            else
+            {
+                AreaBrush.stopPainting();
+            }
+        }
+
         context.batcher.flush();
 
         if (texture != null)

@@ -53,6 +53,7 @@ import mchorse.bbs_mod.events.BBSAddonMod;
 import mchorse.bbs_mod.events.EventBus;
 import mchorse.bbs_mod.events.register.RegisterSettingsEvent;
 import mchorse.bbs_mod.events.register.RegisterSourcePacksEvent;
+import mchorse.bbs_mod.film.FilmExportState;
 import mchorse.bbs_mod.film.FilmManager;
 import mchorse.bbs_mod.forms.FormArchitect;
 import mchorse.bbs_mod.forms.forms.AnchorForm;
@@ -532,6 +533,9 @@ public class BBSMod implements ModInitializer
 
         ServerLifecycleEvents.SERVER_STARTED.register((event) -> worldFolder = event.getSavePath(WorldSavePath.ROOT).toFile());
         ServerPlayConnectionEvents.JOIN.register((a, b, c) -> ServerNetwork.sendHandshake(c, b));
+        /* A player who drops mid-export cannot tell us it ended, and a server left believing one
+         * is still running would spawn every crowd at full size from then on. */
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> FilmExportState.clear(handler.getPlayer().getUuid()));
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> actions.stopFor(handler.getPlayer()));
 
         ActionHandler.registerHandlers(actions);
