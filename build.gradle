@@ -65,6 +65,11 @@ dependencies {
 	modImplementation "org.anarres:jcpp:1.4.14"
 	modImplementation "io.github.douira:glsl-transformer:2.0.0-pre13"
 
+    /* The live-recording undo lives in the client source set, and splitEnvironmentSourceSets
+     * keeps that off the test classpath by default. */
+    testImplementation sourceSets.client.output
+    testImplementation sourceSets.client.compileClasspath
+
     testImplementation platform("org.junit:junit-bom:5.10.2")
     testImplementation "org.junit.jupiter:junit-jupiter"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"

@@ -865,6 +865,7 @@ public class BBSSettings {
 		creativeShowXpBar = builder.getBoolean("creative_show_xp_bar", false);
 		sprintParticles = builder.getBoolean("sprint_particles", false);
 		recordingArmor = builder.getBoolean("recording_armor", true);
+		builder.category("extra", Icons.CONSOLE);
 
 		builder.category("misc", Icons.MORE);
 		damageControl = builder.getBoolean("damage_control", true);

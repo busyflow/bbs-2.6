@@ -80,6 +80,8 @@ import mchorse.bbs_mod.actions.types.crowd.CrowdUtils;
 import mchorse.bbs_mod.film.crowds.Crowd;
 import mchorse.bbs_mod.forms.forms.CrowdForm;
 import mchorse.bbs_mod.ui.film.crowds.CrowdSelection;
+import net.minecraft.util.math.BlockPos;
+import mchorse.bbs_mod.ui.film.live.LiveKeyframeRecorder;
 import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.PlayerUtils;
@@ -123,6 +125,9 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
 
     public UIElement main;
     public UIElement editArea;
+
+    /** Writes a gizmo drag onto the timeline while the film is playing. */
+    public final LiveKeyframeRecorder liveRecorder = new LiveKeyframeRecorder();
     public UIDockLayout dock;
     public UIFilmRecorder recorder;
     public UIFilmPreview preview;
@@ -1663,6 +1668,11 @@ public class UIFilmPanel extends UIDataDashboardPanel<Film> implements IFlightSu
     @Override
     public void render(UIContext context)
     {
+        /* Ahead of everything the frame draws: a take is bounded by the drag ending, by playback
+         * stopping and by the selection changing, and sampling before any of those are acted on
+         * this frame is what keeps the last tick of a take from going missing. */
+        this.liveRecorder.update(this);
+
         if (this.lastTime == 0)
         {
             this.lastTime = System.currentTimeMillis();
