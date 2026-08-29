@@ -4,6 +4,7 @@ import mchorse.bbs_mod.actions.crowd.CrowdBehavior;
 import mchorse.bbs_mod.actions.crowd.CrowdJump;
 import mchorse.bbs_mod.actions.crowd.CrowdTexture;
 import mchorse.bbs_mod.actions.crowd.CrowdWalk;
+import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.utils.colors.Color;
@@ -423,10 +424,19 @@ public class ReplayKeyframes extends ValueGroup
             }
 
             this.offHand.insert(tick, entity.getEquipmentStack(EquipmentSlot.OFFHAND).copy());
-            this.armorHead.insert(tick, entity.getEquipmentStack(EquipmentSlot.HEAD).copy());
-            this.armorChest.insert(tick, entity.getEquipmentStack(EquipmentSlot.CHEST).copy());
-            this.armorLegs.insert(tick, entity.getEquipmentStack(EquipmentSlot.LEGS).copy());
-            this.armorFeet.insert(tick, entity.getEquipmentStack(EquipmentSlot.FEET).copy());
+
+            /* Whatever the player happened to be wearing is not usually the costume, and once it is
+             * written down as a keyframe per tick it is a chore to take off again. Left out, the
+             * channels stay empty and the actor wears nothing until armour keyframes are added by
+             * hand - which is what an empty armour channel already means everywhere else. */
+            if (BBSSettings.recordingArmor.get())
+            {
+                this.armorHead.insert(tick, entity.getEquipmentStack(EquipmentSlot.HEAD).copy());
+                this.armorChest.insert(tick, entity.getEquipmentStack(EquipmentSlot.CHEST).copy());
+                this.armorLegs.insert(tick, entity.getEquipmentStack(EquipmentSlot.LEGS).copy());
+                this.armorFeet.insert(tick, entity.getEquipmentStack(EquipmentSlot.FEET).copy());
+            }
+
             this.selectedSlot.insert(tick, entity.getSelectedSlot());
         }
     }

@@ -32,6 +32,11 @@ import mchorse.bbs_mod.utils.keyframes.KeyframeStyle;
 public class BBSSettings {
 
 	public static ValueInt crowdPreviewCount;
+	public static ValueBoolean creativeShowHearts;
+	public static ValueBoolean creativeShowHunger;
+	public static ValueBoolean creativeShowXpBar;
+	public static ValueBoolean sprintParticles;
+	public static ValueBoolean recordingArmor;
 
 	public static final String DEFAULT_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p %NAME%.mp4";
 	public static final String DEFAULT_AUDIO_FFMPEG_ARGUMENTS = "-f rawvideo -pix_fmt bgr24 -s %WIDTH%x%HEIGHT% -r %FPS% -i - -i %AUDIO_TRACK% -vf %FILTERS% -c:v libx264 -preset ultrafast -tune zerolatency -qp 18 -pix_fmt yuv420p -c:a aac -b:a 128k -shortest %NAME%.mp4";
@@ -854,6 +859,12 @@ public class BBSSettings {
 		 * a row in the settings list per switch, so they share one. */
 		builder.category("fresh", Icons.CONSOLE);
 		crowdPreviewCount = builder.getInt("crowd_preview_count", 500, 0, 100000);
+		builder.category("extra", Icons.CONSOLE);
+		creativeShowHearts = builder.getBoolean("creative_show_hearts", false);
+		creativeShowHunger = builder.getBoolean("creative_show_hunger", false);
+		creativeShowXpBar = builder.getBoolean("creative_show_xp_bar", false);
+		sprintParticles = builder.getBoolean("sprint_particles", false);
+		recordingArmor = builder.getBoolean("recording_armor", true);
 
 		builder.category("misc", Icons.MORE);
 		damageControl = builder.getBoolean("damage_control", true);

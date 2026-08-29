@@ -49,6 +49,7 @@
         "ParticleManagerInvoker",
         "ParticleMixin",
         "LivingEntityCrowdClientBodyMixin"
+        "ClientPlayerInteractionManagerMixin"
     ],
     "injectors": {
         "defaultRequire": 1
