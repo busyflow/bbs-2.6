@@ -3,6 +3,7 @@ package mchorse.bbs_mod.forms.entities;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.morphing.Morph;
 import mchorse.bbs_mod.utils.AABB;
+import mchorse.bbs_mod.utils.animation.DesyncPhase;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.EquipmentSlot;
@@ -19,6 +20,7 @@ public class MCEntity implements IEntity
     private Entity mcEntity;
 
     private float prevPrevBodyYaw;
+    private float animationPhase;
     private Vec3d lastVelocity = Vec3d.ZERO;
 
     private float[] extraVariables = new float[10];
@@ -500,11 +502,25 @@ public class MCEntity implements IEntity
     }
 
     @Override
+    public float getAnimationPhase()
+    {
+        return this.animationPhase;
+    }
+
+    @Override
+    public void setAnimationPhase(float phase)
+    {
+        this.animationPhase = DesyncPhase.normalize(phase);
+    }
+
+    @Override
     public float getLimbPos(float tickDelta)
     {
         if (this.mcEntity instanceof LivingEntity living)
         {
-            return living.limbAnimator.getPos(tickDelta);
+            /* The phase offsets the reading, not the animator: the animator belongs to the entity
+             * and is shared with vanilla, which has its own reasons to reset it. */
+            return living.limbAnimator.getPos(tickDelta) + DesyncPhase.limbOffset(this.animationPhase);
         }
 
         return 0F;
