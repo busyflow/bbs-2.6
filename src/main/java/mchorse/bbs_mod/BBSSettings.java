@@ -858,16 +858,17 @@ public class BBSSettings {
 
 		/* Features owning a single option each - a category per switch would mean
 		 * a row in the settings list per switch, so they share one. */
-		builder.category("fresh", Icons.CONSOLE);
-		crowdPreviewCount = builder.getInt("crowd_preview_count", 500, 0, 100000);
+		/* One category call, and every switch after it. SettingsBuilder#category does
+		 * categories.put(id, new ValueGroup(id)) - naming the same category twice replaces the
+		 * first group with an empty one and silently drops everything already registered into it,
+		 * which is how half of these went missing from the settings screen once. */
 		builder.category("extra", Icons.CONSOLE);
+		crowdPreviewCount = builder.getInt("crowd_preview_count", 500, 0, 100000);
 		creativeShowHearts = builder.getBoolean("creative_show_hearts", false);
 		creativeShowHunger = builder.getBoolean("creative_show_hunger", false);
 		creativeShowXpBar = builder.getBoolean("creative_show_xp_bar", false);
 		sprintParticles = builder.getBoolean("sprint_particles", false);
 		recordingArmor = builder.getBoolean("recording_armor", true);
-		builder.category("extra", Icons.CONSOLE);
-		builder.category("extra", Icons.CONSOLE);
 		orbitAttachRotates = builder.getBoolean("orbit_attach_rotates", true);
 
 		builder.category("misc", Icons.MORE);
