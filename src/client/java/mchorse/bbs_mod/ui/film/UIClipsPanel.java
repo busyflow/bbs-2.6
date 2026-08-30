@@ -282,7 +282,11 @@ public class UIClipsPanel extends UITimelinePanel implements IUIClipsDelegate
 
         for (Clip clip : this.clips.getClipsFromSelection())
         {
-            BaseValue value = clip.getRecursively(path);
+            /* Not getRecursively: that throws when a clip has not got the property, and the
+             * null check right below says the intent was to skip such a clip rather than to fall
+             * over. Editing several clips at once only makes sense where they share a property,
+             * and picking an item with a clip of another kind in the selection crashed the game. */
+            BaseValue value = clip.findRecursively(path);
 
             if (value != null && value.getClass() == property.getClass())
             {
