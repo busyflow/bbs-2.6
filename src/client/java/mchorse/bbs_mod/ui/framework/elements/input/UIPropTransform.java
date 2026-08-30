@@ -1402,13 +1402,26 @@ public class UIPropTransform extends UITransform
         this.setTransform(this.transform);
     }
 
-    @Override
-    public void render(UIContext context)
+    /**
+     * Advance an active mouse gesture without requiring this editor to be visible.
+     *
+     * <p>{@link #render} is the usual pump, and it only runs for an element that is shown. A
+     * transform driven purely by a gizmo - the replay shift - is never shown, so its drag would
+     * be started and then never advanced: the handle would follow the cursor and the thing it
+     * moves would sit still.</p>
+     */
+    public void updateGesture(UIContext context)
     {
         if (this.editing && !this.numeric.isActive() && this.checker.isTime())
         {
             this.updateDrag(context);
         }
+    }
+
+    @Override
+    public void render(UIContext context)
+    {
+        this.updateGesture(context);
 
         super.render(context);
 

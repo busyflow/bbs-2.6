@@ -292,6 +292,9 @@ public class FilmStencilPicker
                 ));
         }
 
+        this.stencilMap.setIncrement(true);
+        this.controller.renderReplayShiftStencil(renderContext, this.stencilMap);
+
         int x = (int) ((context.mouseX - viewport.x) / (float) viewport.w * mainTexture.width);
         int y = (int) ((1F - (context.mouseY - viewport.y) / (float) viewport.h) * mainTexture.height);
         int radius = Math.round(BBSSettings.gizmoHoverTolerance.get() * mainTexture.width / (float) viewport.w);

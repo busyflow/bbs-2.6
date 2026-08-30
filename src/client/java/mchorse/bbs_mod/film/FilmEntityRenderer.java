@@ -20,6 +20,8 @@ import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
+import mchorse.bbs_mod.utils.pose.Transform;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.Pair;
@@ -51,6 +53,41 @@ import java.util.Map;
  */
 public class FilmEntityRenderer
 {
+    /** Capture or stencil a world-space replay-path transform gizmo. */
+    public static void renderReplayTransformGizmo(WorldRenderContext context, Vector3d position, Transform transform, StencilMap map)
+    {
+        if (context == null || position == null || transform == null || BBSRendering.isIrisShadowPass())
+        {
+            return;
+        }
+
+        MatrixStack stack = context.matrixStack();
+        Camera camera = context.camera();
+        Transform orientation = transform.copy();
+
+        orientation.translate.zero();
+        orientation.scale.set(1F);
+
+        stack.push();
+        stack.translate(
+            position.x - camera.getPos().x,
+            position.y - camera.getPos().y,
+            position.z - camera.getPos().z
+        );
+        MatrixStackUtils.multiply(stack, orientation.createMatrix());
+
+        if (map == null)
+        {
+            Gizmo.INSTANCE.captureVisual(stack);
+        }
+        else
+        {
+            Gizmo.INSTANCE.renderStencil(stack);
+        }
+
+        stack.pop();
+    }
+
     public static void renderEntity(FilmControllerContext context)
     {
         Map<String, IEntity> entities = context.entities;

@@ -261,6 +261,7 @@ public class UIKeys
     public static final IKey FILM_CONTROLLER_CONTROL_MODE_TOOLTIP = L10n.lang("bbs.ui.film.controller.control_mode-tooltip");
     public static final IKey FILM_CONTROLLER_INSERT_FRAME_DESCRIPTION = L10n.lang("bbs.ui.film.controller.insert_frame-description");
     public static final IKey FILM_CONTROLLER_INSERT_FRAME_TITLE = L10n.lang("bbs.ui.film.controller.insert_frame-title");
+    public static final IKey FILM_CONTROLLER_REPLAY_SHIFT_GIZMO = L10n.lang("bbs.ui.film.controller.replay_shift_gizmo");
     public static final IKey FILM_CONTROLLER_KEYS_CATEGORY = L10n.lang("bbs.ui.film.controller.keys.category");
     public static final IKey FILM_CONTROLLER_KEYS_CHANGE_CAMERA_MODE = L10n.lang("bbs.ui.film.controller.keys.change_camera_mode");
     public static final IKey FILM_CONTROLLER_KEYS_CYCLE_EDITORS = L10n.lang("bbs.ui.film.controller.keys.cycle_editors");

@@ -504,6 +504,13 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
 
             this.replaysList.replays.refreshReplayList();
             this.setReplay(replays.isEmpty() ? null : replays.get(index), true, OrbitReaction.SWITCH);
+
+            /* The shift gizmo follows whatever is selected, so it hears about this here rather
+             * than watching for it every frame. */
+            if (this.filmPanel.getController() != null)
+            {
+                this.filmPanel.getController().onReplaySelectionChanged();
+            }
         }
     }
 
