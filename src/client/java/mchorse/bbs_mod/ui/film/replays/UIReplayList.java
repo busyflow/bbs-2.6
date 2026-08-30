@@ -2068,18 +2068,49 @@ public class UIReplayList extends UIList<ReplayListEntry>
     {
         Film film = this.panel.getData();
 
-        /* Rebuild any crowd the copied replays drive that this film does not already have, so the
-         * armour, the BBS-model toggle and the chosen form travel with the crowd form and not just
-         * its tag. A crowd already under that tag is left alone - that is the same-film paste,
-         * where the crowd is there and shared. */
+        /* Rebuild any crowd the copied replays drive, so the armour, the BBS-model toggle, the
+         * chosen form and the rest travel with the crowd form rather than just its tag.
+         *
+         * Tags are numbered per film, so the first crowd of every film is called crowd_1. Skipping
+         * an import because the name is taken therefore silently attached a replay pasted from
+         * another film to whatever crowd happened to hold that name here, wearing its settings
+         * instead of the ones it was copied with.
+         *
+         * A name already in use is only the same crowd if it holds the same thing. Where it does,
+         * it is shared - that is the same-film paste, and duplicating would be wrong. Where it does
+         * not, the newcomer is imported under a free name and the replays that drive it are
+         * repointed below. */
+        Map<String, String> retaggedCrowds = new HashMap<>();
+
         for (BaseType crowdType : data.getList("crowds"))
         {
             String tag = crowdType instanceof MapType map ? map.getString("crowd_tag") : null;
 
-            if (tag != null && !tag.isEmpty() && film.crowds.byTag(tag) == null)
+            if (tag == null || tag.isEmpty())
+            {
+                continue;
+            }
+
+            Crowd existing = film.crowds.byTag(tag);
+
+            if (existing == null)
             {
                 film.crowds.addCopy(crowdType);
+
+                continue;
             }
+
+            if (existing.toData().equals(crowdType))
+            {
+                continue;
+            }
+
+            String free = film.crowds.freeTag();
+            MapType renamed = (MapType) crowdType.copy();
+
+            renamed.putString("crowd_tag", free);
+            film.crowds.addCopy(renamed);
+            retaggedCrowds.put(tag, free);
         }
 
         ListType replays = data.getList("replays");
@@ -2102,6 +2133,19 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
                 names.add(cat);
                 film.replayCategoryNames.set(names);
+            }
+
+            /* A crowd that had to be imported under a different name is only reachable if the
+             * form that drives it is told so - otherwise the paste rebuilds the crowd correctly
+             * and leaves the replay pointing at the one it collided with. */
+            if (replay.form.get() instanceof CrowdForm pastedCrowdForm)
+            {
+                String moved = retaggedCrowds.get(pastedCrowdForm.crowd.get());
+
+                if (moved != null)
+                {
+                    pastedCrowdForm.crowd.set(moved);
+                }
             }
 
             last = replay;
