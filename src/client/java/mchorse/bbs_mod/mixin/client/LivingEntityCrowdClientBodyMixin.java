@@ -29,6 +29,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityCrowdClientBodyMixin extends Entity
 {
+    /** How far a torso may turn in a tick before it is a cut rather than a turn. */
+    private static final float SNAP_DEGREES = 45F;
+
+    /** Matches the rate the server turns a look by, so the two never fight. */
+    private static final float TURN_DEGREES_PER_TICK = 25F;
+
     public LivingEntityCrowdClientBodyMixin()
     {
         super(null, null);
@@ -46,28 +52,43 @@ public abstract class LivingEntityCrowdClientBodyMixin extends Entity
         {
             LivingEntity self = (LivingEntity) (Object) this;
 
-            /* A moving member faces the way it is moving; a near-still one keeps the facing the
-             * server sent it. Vanilla mobs get the first for free from their client-side body
-             * control, which is why a mob crowd walks forward while a BBS-actor crowd - a plain
-             * LivingEntity with no such control - strafed sideways facing wherever it was posed.
-             * Deriving the body from movement here gives the actors the same walk-facing, while
-             * the stationary branch still lets a posed crowd face exactly where it was told. */
-            double dx = self.getX() - self.prevX;
-            double dz = self.getZ() - self.prevZ;
-            float target = dx * dx + dz * dz > 1.0E-5D
-                ? (float) Math.toDegrees(Math.atan2(-dx, dz))
-                : self.getYaw();
+            /* The sent facing, not one worked out from movement.
+             *
+             * The server sets a member's yaw for both of the things that decide where it should
+             * face: a walk point sets it to the heading of travel (CrowdKeyframeRuntime, where
+             * faceTravel is on) and a look keyframe sets it to the target (where the look drives
+             * body yaw). Deriving a facing here from how far the member had moved therefore did
+             * not add anything - it overrode both. A crowd walking while looking at something
+             * kept its torso pointed down the path, so the head turned and the body never did,
+             * which is the one thing the body-yaw switch on a look keyframe is for.
+             *
+             * Where the server has an opinion it is the right one; where it has not - a walk with
+             * faceTravel off - the last facing it set is still what was asked for. */
+            float target = self.getYaw();
+            float delta = net.minecraft.util.math.MathHelper.wrapDegrees(target - self.bodyYaw);
 
-            /* Carry last tick's angle into prev rather than flattening both to the new one. The
-             * renderer draws lerp(tickDelta, prevBodyYaw, bodyYaw), so a member whose prev always
-             * equalled its current turned in a single frame per tick and stood still for the rest
-             * of it - a crowd rotating in twenty visible steps a second, which reads as dropped
-             * frames however fast the turn is. Step toward the target so a sharp change of heading
-             * turns over a few ticks instead of snapping. */
-            float step = mchorse.bbs_mod.utils.MathUtils.clamp(net.minecraft.util.math.MathHelper.wrapDegrees(target - self.bodyYaw), -18F, 18F);
+            /* Turns are eased, cuts are not.
+             *
+             * The renderer draws lerp(tickDelta, prevBodyYaw, bodyYaw), so stepping a little each
+             * tick is what makes a turn look continuous rather than twenty jumps a second. But a
+             * camera cut, or a scrub, moves a member somewhere else entirely between one tick and
+             * the next, and easing across that is the crowd visibly swinging back round for the
+             * two or three ticks it takes to catch up - at the start of every clip after a cut.
+             *
+             * A discontinuity is told from a turn by size: the server turns a body no faster than
+             * it turns a head, so anything past that in a single tick did not happen by turning. */
+            if (Math.abs(delta) > SNAP_DEGREES)
+            {
+                self.prevBodyYaw = target;
+                self.bodyYaw = target;
+            }
+            else
+            {
+                float step = mchorse.bbs_mod.utils.MathUtils.clamp(delta, -TURN_DEGREES_PER_TICK, TURN_DEGREES_PER_TICK);
 
-            self.prevBodyYaw = self.bodyYaw;
-            self.bodyYaw = self.bodyYaw + step;
+                self.prevBodyYaw = self.bodyYaw;
+                self.bodyYaw = self.bodyYaw + step;
+            }
 
             info.setReturnValue(headRotation);
         }
