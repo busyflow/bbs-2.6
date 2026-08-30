@@ -63,6 +63,7 @@ public class UIFilmPreview extends UIElement
 
     public UIElement icons;
 
+    public UIIcon shiftReplay;
     public UIIcon onionSkin;
     public UIIcon motionPath;
     public UIIcon plause;
@@ -86,6 +87,8 @@ public class UIFilmPreview extends UIElement
         this.icons.relative(this).x(0.5F).y(1F).anchor(0.5F, 1F);
 
         /* Preview buttons */
+        this.shiftReplay = new UIIcon(Icons.SHIFT_TO, (b) -> this.panel.getController().toggleReplayShiftGizmo());
+        this.shiftReplay.tooltip(UIKeys.FILM_CONTROLLER_REPLAY_SHIFT_GIZMO);
         this.onionSkin = new UIIcon(Icons.ONION_SKIN, (b) -> this.openOnionSkin());
         this.onionSkin.highlight(() -> this.panel.getController().getOnionSkin().enabled.get(), Direction.BOTTOM);
         this.onionSkin.tooltip(UIKeys.FILM_CONTROLLER_ONION_SKIN_TITLE);
@@ -255,7 +258,7 @@ public class UIFilmPreview extends UIElement
             });
         });
 
-        this.icons.add(this.onionSkin, this.motionPath, this.plause, this.teleport, this.flight, this.control, this.perspective, this.recordReplay, this.recordVideo);
+        this.icons.add(this.onionSkin, this.motionPath, this.shiftReplay, this.plause, this.teleport, this.flight, this.control, this.perspective, this.recordReplay, this.recordVideo);
         this.add(this.icons);
     }
 
@@ -413,6 +416,14 @@ public class UIFilmPreview extends UIElement
     @Override
     public void render(UIContext context)
     {
+        UIFilmController shiftController = this.panel.getController();
+
+        /* Enabled while there is a selection to shift, or while it is already on so it can be
+         * turned back off; lit in the UI colour while it owns the viewport. */
+        this.shiftReplay.setEnabled(shiftController.canToggleReplayShiftGizmo() || shiftController.isReplayShiftGizmo());
+        this.shiftReplay.active(shiftController.isReplayShiftGizmo());
+        this.shiftReplay.activeColor = BBSSettings.primaryColor(0);
+
         Texture texture = BBSRendering.getTexture();
         Area area = this.getViewport();
         Camera camera = this.panel.getCamera();

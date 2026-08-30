@@ -144,6 +144,10 @@ public class FilmControllerHud
          * sphere hover highlights composite on top of it. It moved out of the
          * world pass into the UI pipeline so its translucent parts blend
          * correctly (see Gizmo#renderInterface). */
+        /* The shift transform is never shown, so its own render never runs - without this the
+         * handle follows the cursor and the replays it moves stay where they were. */
+        this.controller.updateReplayShiftGesture(context);
+
         if (this.controller.canShowGizmo())
         {
             this.controller.gizmo().renderGizmo(context);
