@@ -67,6 +67,7 @@ import mchorse.bbs_mod.utils.Direction;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.NaturalOrderComparator;
 import mchorse.bbs_mod.utils.RayTracing;
+import mchorse.bbs_mod.utils.animation.DesyncPhase;
 import mchorse.bbs_mod.utils.clips.Clip;
 import mchorse.bbs_mod.utils.clips.Clips;
 import mchorse.bbs_mod.utils.colors.Colors;
@@ -204,6 +205,12 @@ public class UIReplayList extends UIList<ReplayListEntry>
 
                 menu.action(Icons.ALL_DIRECTIONS, UIKeys.SCENE_REPLAYS_CONTEXT_PROCESS, this::processReplays);
                 menu.action(Icons.TIME, UIKeys.SCENE_REPLAYS_CONTEXT_OFFSET_TIME, this::offsetTimeReplays);
+                menu.action(Icons.LIMB, UIKeys.SCENE_REPLAYS_CONTEXT_DESYNC, this::desyncReplays);
+
+                if (this.hasDesyncedSelection())
+                {
+                    menu.action(Icons.REFRESH, UIKeys.SCENE_REPLAYS_CONTEXT_RESYNC, this::resyncReplays);
+                }
 
                 if (this.getSelectedReplays().size() > 1)
                 {
@@ -2376,6 +2383,72 @@ public class UIReplayList extends UIList<ReplayListEntry>
     {
         this.panel.getController().createEntities();
         this.panel.replayEditor.updateChannelsList();
+    }
+
+    /**
+     * Take the selected replays out of step with each other.
+     *
+     * <p>Everything a replay animates by itself - vanilla's arm and leg swing, and a BBS model's
+     * own walk loop - is a function of how far it has walked and when it started walking. Replays
+     * built from the same path, or simply moving at the same speed, therefore agree on both, and a
+     * group of them swings as one body. Handing each a different phase is the whole of the fix; the
+     * poses, the paths and the timing are all untouched.</p>
+     *
+     * <p>The phases are spread over the cycle rather than drawn at random, so that two replays are
+     * never handed near-identical ones - which would leave exactly the pair the eye picks out still
+     * marching together. Pressing it again reshuffles, so a spread that happens to read badly costs
+     * one more click.</p>
+     */
+    /** Whether anything selected has been desynced, so that resyncing is worth offering. */
+    public boolean hasDesyncedSelection()
+    {
+        for (Replay replay : this.getSelectedReplays())
+        {
+            if (replay.animationPhase.get() != 0F)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void desyncReplays()
+    {
+        if (!this.hasReplaySelection())
+        {
+            return;
+        }
+
+        List<Replay> selected = this.getSelectedReplaysInViewOrder();
+        List<Float> phases = DesyncPhase.stratified(selected.size(), new Random());
+
+        for (int i = 0; i < selected.size(); i++)
+        {
+            float phase = phases.get(i);
+
+            BaseValue.edit(selected.get(i).animationPhase, (v) -> v.set(phase));
+        }
+
+        this.updateFilmEditor();
+    }
+
+    /**
+     * Put the selected replays back in step - the state a film that has never been desynced is in.
+     */
+    public void resyncReplays()
+    {
+        if (!this.hasReplaySelection())
+        {
+            return;
+        }
+
+        for (Replay replay : this.getSelectedReplays())
+        {
+            BaseValue.edit(replay.animationPhase, (v) -> v.set(0F));
+        }
+
+        this.updateFilmEditor();
     }
 
     public void dupeReplay()

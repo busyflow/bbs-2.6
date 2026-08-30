@@ -111,6 +111,7 @@ public abstract class BaseFilmController
                 int ticks = replay.getTick(this.getTick());
 
                 entity.setForm(FormUtils.copy(replay.form.get()));
+                entity.setAnimationPhase(replay.animationPhase.get());
                 replay.keyframes.apply(ticks, entity);
                 entity.setPrevX(entity.getX());
                 entity.setPrevY(entity.getY());
@@ -162,6 +163,10 @@ public abstract class BaseFilmController
                  * carry over to the next replay in the loop (which would then wrap an already wrapped tick). */
                 int replayTicks = replay.getTick(ticks);
 
+                /* Pushed every tick rather than only at creation, so that desyncing a replay is
+                 * visible the moment the button is pressed instead of on the next rebuild. */
+                entity.setAnimationPhase(replay.animationPhase.get());
+
                 this.updateEntityAndForm(entity, replayTicks);
                 this.applyReplay(replay, replayTicks, entity);
 
@@ -188,6 +193,10 @@ public abstract class BaseFilmController
 
                         if (anEntity instanceof ActorEntity actor)
                         {
+                            /* An actor placed in the world renders through its own long-lived
+                             * MCEntity, which is where its phase has to live to be read. */
+                            actor.getEntity().setAnimationPhase(replay.animationPhase.get());
+
                             /* Force synchronize entity angles */
                             actor.setYaw(replay.keyframes.yaw.interpolate(replayTicks).floatValue());
                             actor.setHeadYaw(replay.keyframes.headYaw.interpolate(replayTicks).floatValue());

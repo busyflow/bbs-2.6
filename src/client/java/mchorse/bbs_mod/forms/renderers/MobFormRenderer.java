@@ -409,7 +409,9 @@ public class MobFormRenderer extends FormRenderer<MobForm> implements ITickable
                 {
                     a.setPrevSpeed(b.getPrevSpeed());
                     a.setSpeed(b.getSpeed());
-                    a.setPos(b.getPos());
+                    /* Through getLimbPos rather than the raw accumulator, so a desynced actor
+                     * wearing a mob form swings with the same phase as everything else it wears. */
+                    a.setPos(b.getPos() + mchorse.bbs_mod.utils.animation.DesyncPhase.limbOffset(entity.getAnimationPhase()));
                 }
 
                 /* Arm swing */

@@ -42,6 +42,12 @@ public class Replay extends ValueGroup
     /** Extra world-space offset added to the followed shadow position (corrects a model's shifted floor level). */
     public final ValuePoint shadowOffset = new ValuePoint("shadow_offset", new Point(0, 0, 0));
     public final ValueInt looping = new ValueInt("looping", 0);
+    /**
+     * Where in its cycle this replay's procedural animation sits, {@code [0, 1)} - see
+     * {@link mchorse.bbs_mod.utils.animation.DesyncPhase}. Zero is the shared default, so a film
+     * that has never been desynced behaves exactly as it did.
+     */
+    public final ValueFloat animationPhase = new ValueFloat("animation_phase", 0F);
 
     public final ValueBoolean actor = new ValueBoolean("actor", false);
     public final ValueBoolean fp = new ValueBoolean("fp", false);
@@ -69,6 +75,7 @@ public class Replay extends ValueGroup
         this.add(this.shadowFollow);
         this.add(this.shadowOffset);
         this.add(this.looping);
+        this.add(this.animationPhase);
 
         this.add(this.actor);
         this.add(this.fp);
