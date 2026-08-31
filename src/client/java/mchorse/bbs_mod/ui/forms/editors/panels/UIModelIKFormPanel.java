@@ -23,7 +23,6 @@ import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.buttons.UIToggle;
 import mchorse.bbs_mod.ui.framework.elements.input.UISliderTrackpad;
 import mchorse.bbs_mod.ui.framework.elements.input.UITrackpad;
-import mchorse.bbs_mod.ui.framework.elements.input.list.UISearchList;
 import mchorse.bbs_mod.ui.utils.bones.UIBonePicker;
 import mchorse.bbs_mod.ui.utils.bones.UIBonePickerContextMenu;
 import mchorse.bbs_mod.ui.utils.bones.UIBoneTreeList;

@@ -28,6 +28,7 @@ import mchorse.bbs_mod.utils.DataPath;
 import mchorse.bbs_mod.utils.EnumUtils;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.PermissionUtils;
+import mchorse.bbs_mod.utils.StructureSaver;
 import mchorse.bbs_mod.utils.clips.Clips;
 import mchorse.bbs_mod.utils.repos.RepositoryOperation;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
@@ -76,8 +77,15 @@ public class ServerNetwork
     public static final Identifier CLIENT_ANIMATION_STATE_MODEL_BLOCK_TRIGGER = new Identifier(BBSMod.MOD_ID, "c16");
     public static final Identifier CLIENT_REFRESH_MODEL_BLOCKS = new Identifier(BBSMod.MOD_ID, "c17");
     public static final Identifier CLIENT_REQUEST_FILM_RESYNC = new Identifier(BBSMod.MOD_ID, "c18");
-    public static final Identifier CLIENT_CROWD_MEMBERS = new Identifier(BBSMod.MOD_ID, "c19");
-    public static final Identifier CLIENT_CROWD_PRELOAD_READY = new Identifier(BBSMod.MOD_ID, "c20");
+    public static final Identifier CLIENT_STRUCTURE_SAVED = new Identifier(BBSMod.MOD_ID, "c19");
+    public static final Identifier CLIENT_STRUCTURE_CUT = new Identifier(BBSMod.MOD_ID, "c20");
+    /* The fork's crowd packets moved off c19/c20 when upstream claimed those for the structure
+     * wand. A channel id is only a name both sides agree on, and both sides ship in this jar, so
+     * renumbering is free - but two packets sharing an id is not: the later registration wins and
+     * the other silently never arrives. Kept above the upstream block so the next collision is
+     * obvious. */
+    public static final Identifier CLIENT_CROWD_MEMBERS = new Identifier(BBSMod.MOD_ID, "c21");
+    public static final Identifier CLIENT_CROWD_PRELOAD_READY = new Identifier(BBSMod.MOD_ID, "c22");
 
     public static final Identifier SERVER_MODEL_BLOCK_FORM_PACKET = new Identifier(BBSMod.MOD_ID, "s1");
     public static final Identifier SERVER_MODEL_BLOCK_TRANSFORMS_PACKET = new Identifier(BBSMod.MOD_ID, "s2");
@@ -93,7 +101,10 @@ public class ServerNetwork
     public static final Identifier SERVER_ZOOM = new Identifier(BBSMod.MOD_ID, "s12");
     public static final Identifier SERVER_PAUSE_FILM = new Identifier(BBSMod.MOD_ID, "s13");
     public static final Identifier SERVER_APPLY_FILM_PLAYER_SETTINGS = new Identifier(BBSMod.MOD_ID, "s14");
-    public static final Identifier SERVER_EXPORT_STATE = new Identifier(BBSMod.MOD_ID, "s15");
+    public static final Identifier SERVER_SAVE_STRUCTURE = new Identifier(BBSMod.MOD_ID, "s15");
+    public static final Identifier SERVER_CUT_STRUCTURE = new Identifier(BBSMod.MOD_ID, "s16");
+    /* Moved off s15 for the same reason as the crowd packets above. */
+    public static final Identifier SERVER_EXPORT_STATE = new Identifier(BBSMod.MOD_ID, "s17");
 
     private static ServerPacketCrusher crusher = new ServerPacketCrusher();
 
@@ -119,9 +130,74 @@ public class ServerNetwork
         ServerPlayNetworking.registerGlobalReceiver(SERVER_ZOOM, (server, player, handler, buf, responder) -> handleZoomPacket(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_PAUSE_FILM, (server, player, handler, buf, responder) -> handlePauseFilmPacket(server, player, buf));
         ServerPlayNetworking.registerGlobalReceiver(SERVER_APPLY_FILM_PLAYER_SETTINGS, (server, player, handler, buf, responder) -> handleApplyFilmPlayerSettings(server, player, buf));
+        ServerPlayNetworking.registerGlobalReceiver(SERVER_SAVE_STRUCTURE, (server, player, handler, buf, responder) -> handleSaveStructure(server, player, buf));
+        ServerPlayNetworking.registerGlobalReceiver(SERVER_CUT_STRUCTURE, (server, player, handler, buf, responder) -> handleCutStructure(server, player, buf));
     }
 
     /* Handlers */
+
+    /**
+     * Save a region the structure wand picked. The corners arrive already chosen — the selection
+     * itself never leaves the client — and the reply tells it to drop its structure cache so the
+     * new file is visible to the pickers and to any form already pointing at that name.
+     */
+    /**
+     * Save a region and then empty it, for the film cut that turns a build into a form. Saving
+     * first is what makes this survivable: the file is the only way back, so the world is not
+     * touched until it is on disk. A failed save clears nothing.
+     */
+    private static void handleCutStructure(MinecraftServer server, ServerPlayerEntity player, PacketByteBuf buf)
+    {
+        String name = buf.readString();
+        BlockPos from = buf.readBlockPos();
+        BlockPos to = buf.readBlockPos();
+
+        if (!PermissionUtils.arePanelsAllowed(server, player))
+        {
+            return;
+        }
+
+        server.execute(() ->
+        {
+            ServerWorld world = player.getServerWorld();
+            boolean saved = StructureSaver.save(world, name, from, to);
+
+            if (saved)
+            {
+                StructureSaver.clear(world, from, to);
+            }
+
+            PacketByteBuf reply = PacketByteBufs.create();
+
+            reply.writeBoolean(saved);
+            reply.writeString(name);
+
+            ServerPlayNetworking.send(player, CLIENT_STRUCTURE_CUT, reply);
+        });
+    }
+
+    private static void handleSaveStructure(MinecraftServer server, ServerPlayerEntity player, PacketByteBuf buf)
+    {
+        String name = buf.readString();
+        BlockPos from = buf.readBlockPos();
+        BlockPos to = buf.readBlockPos();
+
+        if (!PermissionUtils.arePanelsAllowed(server, player))
+        {
+            return;
+        }
+
+        server.execute(() ->
+        {
+            boolean saved = StructureSaver.save(player.getServerWorld(), name, from, to);
+            PacketByteBuf reply = PacketByteBufs.create();
+
+            reply.writeBoolean(saved);
+            reply.writeString(name);
+
+            ServerPlayNetworking.send(player, CLIENT_STRUCTURE_SAVED, reply);
+        });
+    }
 
     private static void handleModelBlockFormPacket(MinecraftServer server, ServerPlayerEntity player, PacketByteBuf buf)
     {

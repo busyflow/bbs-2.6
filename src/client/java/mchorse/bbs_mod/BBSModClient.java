@@ -34,6 +34,8 @@ import mchorse.bbs_mod.forms.FormCategories;
 import mchorse.bbs_mod.forms.categories.UserFormCategory;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.structure.BakedStructure;
+import mchorse.bbs_mod.forms.structure.StructureSelection;
+import mchorse.bbs_mod.forms.structure.StructureWand;
 import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.graphics.FramebufferManager;
 import mchorse.bbs_mod.graphics.texture.TextureManager;
@@ -549,8 +551,12 @@ public class BBSModClient implements ClientModInitializer
         keyTeleport = this.createKey("teleport", GLFW.GLFW_KEY_Y);
         keyZoom = this.createKeyMouse("zoom", 2);
 
+        StructureWand.register();
+
         WorldRenderEvents.AFTER_ENTITIES.register((context) ->
         {
+            StructureWand.renderWorld(context);
+
             if (!BBSRendering.isIrisShadersEnabled())
             {
                 BBSRendering.renderCoolStuff(context);
@@ -619,6 +625,10 @@ public class BBSModClient implements ClientModInitializer
             dashboard = null;
             worldExportSession.stop();
             videos.delete();
+
+            /* Corners are raw coordinates: kept across a world change they would point the wand
+             * at whatever now stands in their place */
+            StructureSelection.clear();
 
             /* A panel export dies with its dashboard without finishing - the sound
              * capture must not keep accumulating into the next session */
