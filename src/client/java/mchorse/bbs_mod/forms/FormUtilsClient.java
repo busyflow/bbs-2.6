@@ -22,6 +22,7 @@ import mchorse.bbs_mod.forms.renderers.BillboardFormRenderer;
 import mchorse.bbs_mod.forms.renderers.BlockFormRenderer;
 import mchorse.bbs_mod.forms.renderers.ExtrudedFormRenderer;
 import mchorse.bbs_mod.forms.renderers.FormRenderer;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.forms.renderers.FormRenderingContext;
 import mchorse.bbs_mod.forms.renderers.FramebufferFormRenderer;
 import mchorse.bbs_mod.forms.renderers.ItemFormRenderer;
@@ -167,23 +168,33 @@ public class FormUtilsClient
 
     public static void renderUI(Form form, UIContext context, int x1, int y1, int x2, int y2)
     {
+        BBSProfiler.count(BBSProfiler.Section.UI_PREVIEW_RENDERS);
+        BBSProfiler.begin(BBSProfiler.Timer.UI_PREVIEWS);
+
         FormRenderer renderer = getRenderer(form);
 
         if (renderer != null)
         {
             renderer.renderUI(context, x1, y1, x2, y2);
         }
+
+        BBSProfiler.end(BBSProfiler.Timer.UI_PREVIEWS);
     }
 
     /** The form's picture alone; see {@link FormRenderer#renderPreview}. */
     public static void renderPreview(Form form, UIContext context, int x1, int y1, int x2, int y2)
     {
+        BBSProfiler.count(BBSProfiler.Section.UI_PREVIEW_RENDERS);
+        BBSProfiler.begin(BBSProfiler.Timer.UI_PREVIEWS);
+
         FormRenderer renderer = getRenderer(form);
 
         if (renderer != null)
         {
             renderer.renderPreview(context, x1, y1, x2, y2);
         }
+
+        BBSProfiler.end(BBSProfiler.Timer.UI_PREVIEWS);
     }
 
     public static void render(Form form, FormRenderingContext context)

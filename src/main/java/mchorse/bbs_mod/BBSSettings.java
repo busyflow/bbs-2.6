@@ -53,6 +53,8 @@ public class BBSSettings {
 	public static ValueBoolean forceQwerty;
 	public static ValueBoolean freezeModels;
 	public static ValueBoolean listModelPreview;
+	/** How many cached form pictures (lists, palettes) are re-rendered per frame; 0 renders them live. */
+	public static ValueInt previewRefreshBudget;
 	public static ValueBoolean morphingFocusSearch;
 	public static ValueInt formCellSize;
 	public static ValueInt textureCellSize;
@@ -137,6 +139,7 @@ public class BBSSettings {
 	public static ValueInt duration;
 	public static ValueBoolean editorLoop;
 	public static ValueBoolean autoKeyframe;
+	public static ValueBoolean anchorKeepTransform;
 	public static ValueInt editorJump;
 	public static ValueInt editorGuidesColor;
 	public static ValueBoolean editorRuleOfThirds;
@@ -160,7 +163,14 @@ public class BBSSettings {
 	public static ValueOnionSkin editorOnionSkin;
 	public static ValueIKDebug ikDebug;
 	public static ValuePhysicsDebug physicsDebug;
+	public static ValueBoolean profilerOverlay;
+	/** Emergency switch for the per-frame pose caches; invisible, on by default. */
+	public static ValueBoolean framePoseCache;
+	/** Skip rendering replays whose surroundings are entirely off screen. */
+	public static ValueBoolean frustumCulling;
 	public static ValueBoolean editorSnapToMarkers;
+	/** Snapping to the film's own markers &mdash; unlike {@link #editorSnapToMarkers}, which is the ruler's notches. */
+	public static ValueBoolean editorSnapToFilmMarkers;
 	public static ValueBoolean editorClipPreview;
 	public static ValueBoolean editorRewind;
 	public static ValueBoolean editorStopPlaybackOnScrub;
@@ -178,6 +188,7 @@ public class BBSSettings {
 	public static ValueFloat editorPreviewResolutionScale;
 	public static ValueBoolean editorClipAutoName;
 	public static ValueBoolean editorPreviewIconsAutoHide;
+	public static ValueBoolean editorPreviewSelectionHud;
 	public static ValueBoolean editorKeepFrameOnExit;
 
 	public static ValueFloat recordingCountdown;
@@ -528,6 +539,11 @@ public class BBSSettings {
 		migrated |= migrateLegacyCategory(root, "personalization", "timeline", "track_width", "keyframe_default_shape");
 		migrated |= migrateLegacyCategory(root, "appearance", "workspace", "clip_auto_name");
 
+		/* The performance knobs gathered into a category of their own */
+		migrated |= migrateLegacyCategory(root, "appearance", "performance", "list_model_preview", "preview_refresh_budget", "freeze_models");
+		migrated |= migrateLegacyCategory(root, "viewport", "performance", "profiler_overlay", "frame_pose_cache");
+		migrated |= migrateLegacyCategory(root, "misc", "performance", "translucency_queue", "multiskin_multithreaded");
+
 		/* Video capture was briefly split three ways, which turned out to be worse
 		 * than the one long page it came from */
 		migrated |= migrateLegacyCategory(root, "export", "video",
@@ -612,6 +628,8 @@ public class BBSSettings {
 		defaultFilters.add("vY");
 		defaultFilters.add("vZ");
 		defaultFilters.add("grounded");
+		defaultFilters.add("leaning");
+		defaultFilters.add("roll");
 		defaultFilters.add("stick_rx");
 		defaultFilters.add("stick_ry");
 		defaultFilters.add("trigger_l");
@@ -632,8 +650,6 @@ public class BBSSettings {
 		fov = builder.getFloat("fov", 40, 0, 180);
 		colorPickerHsvTab = builder.getBoolean("hsv_color_picker", true);
 		forceQwerty = builder.getBoolean("force_qwerty", false);
-		freezeModels = builder.getBoolean("freeze_models", false);
-		listModelPreview = builder.getBoolean("list_model_preview", true);
 		morphingFocusSearch = builder.getBoolean("morphing_focus_search", false);
 		formCellSize = builder.getInt("form_cell_size", 60, 40, 140).slider();
 		textureCellSize = builder.getInt("texture_cell_size", 80, 40, 200).slider();
@@ -753,12 +769,27 @@ public class BBSSettings {
 		editorPreviewResolutionScale = builder.getFloat("preview_resolution_scale", 2F, 1F, 3F).slider();
 		editorClipPreview = builder.getBoolean("clip_preview", true);
 		editorPreviewIconsAutoHide = builder.getBoolean("preview_icons_auto_hide", false);
+		editorPreviewSelectionHud = builder.getBoolean("preview_selection_hud", true);
 		builder.register(editorOnionSkin = new ValueOnionSkin("onion_skin"));
 		builder.register(editorMotionPath = new ValueMotionPath("motion_path"));
 		/* Overlays drawn over the preview which are edited through the gear in the
 		 * IK and physics panels - stored here, no row of their own in the settings */
 		builder.register(ikDebug = new ValueIKDebug("ik_debug"));
 		builder.register(physicsDebug = new ValuePhysicsDebug("physics_debug"));
+
+		/* Everything that trades work for frames: what the editor renders at all, at what
+		 * resolution and how often, what it computes in parallel, plus the counters that
+		 * show where the frame goes. */
+		builder.category("performance", Icons.PROCESSOR);
+		listModelPreview = builder.getBoolean("list_model_preview", true);
+		previewRefreshBudget = builder.getInt("preview_refresh_budget", 2, 0, 8).slider();
+		freezeModels = builder.getBoolean("freeze_models", false);
+		translucencyQueue = builder.getBoolean("translucency_queue", false);
+		multiskinMultiThreaded = builder.getBoolean("multiskin_multithreaded", true);
+		frustumCulling = builder.getBoolean("frustum_culling", true);
+		profilerOverlay = builder.getBoolean("profiler_overlay", false);
+		framePoseCache = builder.getBoolean("frame_pose_cache", true);
+		framePoseCache.invisible();
 
 		builder.category("background", Icons.IMAGE);
 		backgroundImage = builder.getRL("image", null);
@@ -776,6 +807,7 @@ public class BBSSettings {
 		editorJump = builder.getInt("jump", 5, 1, 1000);
 		editorLoop = builder.getBoolean("loop", false);
 		autoKeyframe = builder.getBoolean("auto_keyframe", false);
+		anchorKeepTransform = builder.getBoolean("anchor_keep_transform", true);
 		editorSeconds = builder.getBoolean("seconds", false);
 		editorTimelineGrid = builder.getBoolean("timeline_grid", false);
 		keyframeDefaultInterpolation = builder.getString("keyframe_default_interpolation", Interpolations.LINEAR.getKey());
@@ -783,6 +815,7 @@ public class BBSSettings {
 		keyframePreview = builder.getBoolean("keyframe_preview", true);
 		editorTrackWidth = builder.getInt("track_width", 2, 1, 10).slider();
 		editorSnapToMarkers = builder.getBoolean("snap_to_markers", false);
+		editorSnapToFilmMarkers = builder.getBoolean("snap_to_film_markers", true);
 		editorRewind = builder.getBoolean("rewind", true);
 		editorStopPlaybackOnScrub = builder.getBoolean("stop_playback_on_scrub", false);
 		editorRestartOnSeek = builder.getBoolean("restart_on_seek", false);
@@ -853,8 +886,6 @@ public class BBSSettings {
 		builder.category("misc", Icons.MORE);
 		damageControl = builder.getBoolean("damage_control", true);
 		shaderCurvesEnabled = builder.getBoolean("shader_curves", true);
-		translucencyQueue = builder.getBoolean("translucency_queue", false);
-		multiskinMultiThreaded = builder.getBoolean("multiskin_multithreaded", true);
 		entitySelectorsPropertyWhitelist = builder.getString("entity_selectors_whitelist", "CustomName,Name");
 	}
 }

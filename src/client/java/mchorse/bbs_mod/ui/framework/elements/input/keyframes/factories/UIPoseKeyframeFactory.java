@@ -8,24 +8,18 @@ import mchorse.bbs_mod.forms.forms.MobForm;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
 import mchorse.bbs_mod.settings.values.IValueListener;
-import mchorse.bbs_mod.ui.UIKeys;
-import mchorse.bbs_mod.ui.film.UIFilmPanel;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeSheet;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframes;
-import mchorse.bbs_mod.ui.utils.UI;
+import mchorse.bbs_mod.ui.framework.elements.input.list.UIStringList;
 import mchorse.bbs_mod.ui.utils.pose.UIPoseEditor;
-import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.CollectionUtils;
-import mchorse.bbs_mod.utils.MathUtils;
-import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
-import org.joml.Vector3d;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -70,41 +64,29 @@ public class UIPoseKeyframeFactory extends UIKeyframeFactory<Pose>
         this.scroll.add(this.poseEditor);
     }
 
+    /**
+     * Only the choice of arrangement lives here — this popup is the one that knows its own width,
+     * since the user resizes it. Building the arrangement is {@link UIPoseEditor}'s own job, so this
+     * editor stays identical to the form editor's pose panel instead of drifting from it.
+     */
     @Override
     public void resize()
     {
-        boolean wide = this.getFlex().getW() > 240;
+        boolean wide = this.getFlex().getW() > UIPoseEditor.WIDE_WIDTH;
 
         if (this.wide == null || this.wide != wide)
         {
             this.wide = wide;
-            this.rebuild(wide);
+            this.poseEditor.buildLayout(wide);
+
+            /* Ew... */
+            for (UIElement child : this.scroll.getChildren(UIElement.class))
+            {
+                child.noCulling();
+            }
         }
 
         super.resize();
-    }
-
-    private void rebuild(boolean wide)
-    {
-        this.poseEditor.removeAll();
-
-        if (wide)
-        {
-            this.poseEditor.add(UI.row(
-                UI.column(UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.poseEditor.fix), UI.row(this.poseEditor.color, this.poseEditor.lighting), this.poseEditor.transform),
-                UI.column(UI.label(UIKeys.FORMS_EDITOR_BONE), this.poseEditor.groups)
-            ));
-        }
-        else
-        {
-            this.poseEditor.add(UI.label(UIKeys.FORMS_EDITOR_BONE), this.poseEditor.groups, UI.labelRow(UIKeys.POSE_CONTEXT_FIX, this.poseEditor.fix), UI.row(this.poseEditor.color, this.poseEditor.lighting), this.poseEditor.transform);
-        }
-
-        /* Ew... */
-        for (UIElement child : this.scroll.getChildren(UIElement.class))
-        {
-            child.noCulling();
-        }
     }
 
     public static class UIPoseFactoryEditor extends UIPoseEditor
@@ -176,6 +158,11 @@ public class UIPoseKeyframeFactory extends UIKeyframeFactory<Pose>
             this.editor = editor;
             this.keyframe = keyframe;
 
+            /* This popup is short and the user resizes it, so the list asks for less than the form
+             * editor's does — it expands into the leftover anyway, and this is the floor it hits
+             * when the fields alone already fill the popup. */
+            this.groups.list.h(UIStringList.DEFAULT_HEIGHT * 4);
+
             ((UIPoseTransforms) this.transform).setKeyframe(this);
         }
 
@@ -192,12 +179,6 @@ public class UIPoseKeyframeFactory extends UIKeyframeFactory<Pose>
         private String getGroup(PoseTransform transform)
         {
             return CollectionUtils.getKey(this.getPose().transforms, transform);
-        }
-
-        @Override
-        protected boolean stretchesBoneList()
-        {
-            return true;
         }
 
         @Override

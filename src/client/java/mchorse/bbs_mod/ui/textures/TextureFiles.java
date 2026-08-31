@@ -8,6 +8,7 @@ import mchorse.bbs_mod.ui.dashboard.textures.data.TextureAnimation;
 import mchorse.bbs_mod.utils.PNGEncoder;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.resources.Pixels;
+import mchorse.bbs_mod.utils.resources.PlayerSkins;
 
 import java.io.File;
 import java.io.IOException;
@@ -54,6 +55,16 @@ public class TextureFiles
         return file != null && file.exists();
     }
 
+    /**
+     * Whether a link can be thrown away. Wider than {@link #canModify(Link)}: a fetched player
+     * skin has no file the user owns — it can't be renamed or moved — but the copy of it kept
+     * on this machine is the user's to drop.
+     */
+    public static boolean canDelete(Link link)
+    {
+        return canModify(link) || PlayerSkins.nickname(link) != null;
+    }
+
     /** Whether a folder (or a source root) is read-only: nothing in it can be changed, only copied out. */
     public static boolean isReadOnly(Link folder)
     {
@@ -83,19 +94,13 @@ public class TextureFiles
             return null;
         }
 
-        try
-        {
-            Files.move(file.toPath(), target.toPath());
-            moveSidecars(file, target);
-        }
-        catch (IOException e)
-        {
-            e.printStackTrace();
+        return moveFile(link, file, target);
+    }
 
-            return null;
-        }
-
-        return moved(link, done(target, link));
+    /** Move a texture and whatever sits beside it, and hand back the link it now lives at. */
+    private static Link moveFile(Link link, File file, File target)
+    {
+        return moveFile(link, file, target);
     }
 
     public static Link duplicate(Link link)
@@ -410,6 +415,18 @@ public class TextureFiles
 
     public static boolean delete(Link link)
     {
+        String nickname = PlayerSkins.nickname(link);
+
+        if (nickname != null)
+        {
+            /* Only the fetched copy goes. Anything still showing this skin keeps the texture
+             * it already has, so a deletion can't fetch it right back in front of the user. */
+            PlayerSkins.forget(nickname);
+            TexturePins.follow(link, null);
+
+            return true;
+        }
+
         File file = file(link);
 
         if (file == null || !file.exists())

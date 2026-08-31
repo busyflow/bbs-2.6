@@ -79,11 +79,15 @@ public class OrbitFilmCameraController extends OrbitViewportController
         return this.controller.panel.dashboard.orbit.getSpeed();
     }
 
-    /** Walking the pivot can be reserved for flight, so WASD keeps meaning what it did there. */
+    /**
+     * Flight moves the camera itself, so WASD walks the pivot only when it is off - and by
+     * default not even then: walking the viewport is what flight is for, and the setting keeps
+     * WASD out of the orbit until it is asked for.
+     */
     @Override
     protected boolean canMove()
     {
-        return !BBSSettings.editorOrbitMovementRequiresFlight.get() || this.controller.panel.isFlying();
+        return !this.controller.panel.isFlying() && !BBSSettings.editorOrbitMovementRequiresFlight.get();
     }
 
     /** While flying, the wheel is the flight camera's speed dial, not the orbit's zoom. */
@@ -93,15 +97,11 @@ public class OrbitFilmCameraController extends OrbitViewportController
         return !this.controller.panel.isFlying();
     }
 
+    /** While flying, every button belongs to the flight camera: free look, roll and FOV. */
     @Override
     protected boolean canStart(UIContext context)
     {
-        if (this.controller.panel.isFlying())
-        {
-            return context.mouseButton == 0;
-        }
-
-        return super.canStart(context);
+        return !this.controller.panel.isFlying() && super.canStart(context);
     }
 
     /* The replay it turns around */

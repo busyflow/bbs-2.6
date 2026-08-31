@@ -45,7 +45,7 @@ import mchorse.bbs_mod.ui.utils.presets.UICopyPasteController;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.Pair;
-import mchorse.bbs_mod.utils.colors.Colors;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.KeyframeSegment;
@@ -950,13 +950,6 @@ public class UIKeyframes extends UIElement
 
     /* Getters & setters */
 
-    public UIKeyframes backgroundRenderer(Consumer<UIContext> backgroundRender)
-    {
-        this.backgroundRender = backgroundRender;
-
-        return this;
-    }
-
     public UIKeyframes rulerRenderer(Consumer<UIContext> rulerRender)
     {
         this.rulerRender = rulerRender;
@@ -1376,6 +1369,8 @@ public class UIKeyframes extends UIElement
     {
         super.render(context);
 
+        BBSProfiler.begin(BBSProfiler.Timer.UI_TIMELINE);
+
         this.handleMouse(context);
 
         context.batcher.clip(this.area, context);
@@ -1400,6 +1395,8 @@ public class UIKeyframes extends UIElement
             Area a = this.labelResizer.area;
             Scroll.bar(context.batcher, a.x, a.y, a.ex(), a.ey());
         }
+
+        BBSProfiler.end(BBSProfiler.Timer.UI_TIMELINE);
     }
 
     protected void renderOverlay(UIContext context)
