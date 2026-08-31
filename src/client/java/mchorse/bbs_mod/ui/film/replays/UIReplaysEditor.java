@@ -10,8 +10,6 @@ import mchorse.bbs_mod.camera.clips.misc.AudioClip;
 import mchorse.bbs_mod.camera.utils.TimeUtils;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.ik.ModelIKRuntime;
-import mchorse.bbs_mod.cubic.physics.ModelPhysicsConfig;
-import mchorse.bbs_mod.cubic.physics.ModelPhysicsIO;
 import mchorse.bbs_mod.data.DataStorageUtils;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.film.Film;
@@ -26,7 +24,6 @@ import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.film.replays.ReplayKeyframes;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.entities.IEntity;
-import mchorse.bbs_mod.forms.forms.BodyPart;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
@@ -35,7 +32,6 @@ import mchorse.bbs_mod.l10n.L10n;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
-import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
 import mchorse.bbs_mod.ui.film.UIClipsPanel;
@@ -71,12 +67,9 @@ import mchorse.bbs_mod.utils.RayTracing;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.clips.Clip;
 import mchorse.bbs_mod.utils.clips.Clips;
-import mchorse.bbs_mod.utils.colors.Color;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
-import mchorse.bbs_mod.utils.keyframes.factories.KeyframeFactories;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.world.World;
@@ -85,12 +78,10 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
@@ -111,6 +102,16 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
 
     /* Keyframes */
     public UIKeyframeEditor keyframeEditor;
+
+    /**
+     * The gizmo target for the replay's own placement in the world. It has no fields on
+     * screen — the record is edited by dragging the actor, not by typing — but it is a
+     * child all the same, so it can reach the UI context; its gesture is driven by
+     * {@link mchorse.bbs_mod.ui.utils.GizmoInteraction#update} rather than by a render.
+     * It outlives the keyframe editor, which is rebuilt on every replay and category
+     * switch, so a running drag survives whatever the selection does underneath it.
+     */
+    public final UIReplayPropTransform replayTransform = new UIReplayPropTransform();
 
     /* Action clips share the timeline area; the toggle below the categories switches to them. */
     private UIClipsPanel actionTimeline;
@@ -400,7 +401,7 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
         this.keys().register(Keys.REPLAYS_TAB_5, () -> this.setCategoryByPosition(4))
             .category(UIKeys.FILM_REPLAY_TITLE);
 
-        this.add(this.iconBar, this.collapseAll, this.expandAll, this.actionsToggle);
+        this.add(this.iconBar, this.collapseAll, this.expandAll, this.actionsToggle, this.replayTransform);
         this.markContainer();
     }
 
@@ -436,6 +437,22 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
         this.allMode = false;
         this.category = c;
         this.updateChannelsList();
+    }
+
+    /**
+     * Bring the replay's own tracks into view, for when something outside the timeline starts
+     * writing to them — dragging the replay gizmo. Without this the keys land on x/y/z and the
+     * angles while the timeline is showing bones or materials, and the edit happens off screen.
+     *
+     * <p>"All tracks" already shows them, so it is left alone: it is the wider view, and
+     * dropping out of it into a single category would be a step back, not forward.
+     */
+    public void showReplayTracks()
+    {
+        if (this.actionsMode || (!this.allMode && this.category != ReplayCategory.REPLAY))
+        {
+            this.setCategory(ReplayCategory.REPLAY);
+        }
     }
 
     /** Show every category's tracks at once, bypassing the category filter. */
@@ -693,17 +710,9 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
                 int mouseY = this.getContext().mouseY;
                 UIKeyframeSheet sheet = this.keyframeEditor.view.getGraph().getSheet(mouseY);
 
-                /* Whose pose the hovered track is: the replay's own form for "pose", a body
-                 * part's for "<path>/pose". Everything that works on a pose asks the track,
-                 * not the replay - a body part carries its own model, animations and bones. */
-                Form sheetForm = sheet != null && sheet.property != null ? FormUtils.getForm(sheet.property) : null;
-                boolean isPoseTrack = sheet != null
-                    && sheet.channel.getFactory() == KeyframeFactories.POSE
-                    && (sheet.id.equals("pose")
-                    || sheet.id.endsWith(FormUtils.PATH_SEPARATOR + "pose"))
-                    && !sheet.id.contains("pose_overlay");
+                ModelForm poseModelForm = sheet == null ? null : sheet.getPoseForm();
 
-                if (isPoseTrack && sheetForm instanceof ModelForm poseModelForm)
+                if (poseModelForm != null)
                 {
                     menu.action(Icons.POSE, UIKeys.FILM_REPLAY_CONTEXT_ANIMATION_TO_KEYFRAMES, () ->
                     {
@@ -1079,20 +1088,13 @@ public class UIReplaysEditor extends UIElement implements IBoneSelectionHost
 
     public boolean clickViewport(UIContext context, Area area)
     {
-        if (this.filmPanel.isFlying() && area.isInside(context))
+        /* In flight the buttons are the flight camera's, so the left one is left for it to
+         * pick up as free look; only the middle one has to be handed over by hand. */
+        if (this.filmPanel.isFlying() && area.isInside(context) && context.mouseButton == 2)
         {
-            if (context.mouseButton == 0 && this.filmPanel.getController().orbit.enabled)
-            {
-                this.filmPanel.getController().orbit.start(context);
+            this.filmPanel.dashboard.orbit.start(2, context.mouseX, context.mouseY);
 
-                return true;
-            }
-            if (context.mouseButton == 2)
-            {
-                this.filmPanel.dashboard.orbit.start(2, context.mouseX, context.mouseY);
-
-                return true;
-            }
+            return true;
         }
 
         if (this.filmPanel.isFlying())

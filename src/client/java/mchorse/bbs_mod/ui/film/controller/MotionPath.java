@@ -5,8 +5,8 @@ import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.actions.crowd.CrowdWalkEvaluator;
 import mchorse.bbs_mod.cubic.animation.ActionConfig;
 import mchorse.bbs_mod.cubic.animation.ActionsConfig;
-import mchorse.bbs_mod.film.BaseFilmController;
 import mchorse.bbs_mod.film.FilmMatrices;
+import mchorse.bbs_mod.film.FilmTarget;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -16,7 +16,6 @@ import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.graphics.Draw;
 import mchorse.bbs_mod.settings.values.ui.ValueMotionPath;
-import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
@@ -40,25 +39,18 @@ import java.util.Map;
 import java.util.TreeSet;
 
 /**
- * The selected replay's (or selected bone's) world-space trajectory drawn into
- * the film viewport: a curve sampled over time with a dot on every tick, a
- * marker on every keyframe and a highlight on the current frame — the same idea
- * as Blender's motion paths. Every part is configured through
- * {@link ValueMotionPath} (edited from the preview's motion path button).
+ * The selected replay's (or bone's) world trajectory drawn into the film viewport —
+ * Blender's motion paths: a sampled curve with a dot per tick, a marker per keyframe and a
+ * highlight on the current frame, all configured through {@link ValueMotionPath}.
  *
- * <p>The root path comes straight from the replay's position channels. The bone
- * path is the expensive one: a bone's world position has to be simulated tick by
- * tick (pose + IK run inside {@code collectMatrices}), so it is computed on a
- * scratch entity (never touching the on-screen model) into a cached world-point
- * list, recomputed only when the animation changes — detected by a cheap
- * structural signature plus a per-frame divergence check against one live sample
- * at the current frame (which also serves as the current-frame marker).
- * Procedural limb motion and physics are approximate (a discrete snapshot has no
- * history); keyframed pose and IK are exact.
+ * <p>The root path comes straight from the position channels. The BONE path is the expensive
+ * one: a bone's world position must be simulated tick by tick, so it runs on a scratch entity
+ * (never the on-screen model) into a cached point list, recomputed only when the animation
+ * changes — a cheap structural signature plus a divergence check against one live sample.
+ * Procedural limb motion and physics are approximate there; keyframed pose and IK are exact.
  *
- * <p>It draws in the world / 3D pass like {@link UIFilmController}'s orbit centre
- * marker (camera-relative, depth disabled). The curve is a camera-facing ribbon
- * (one flat quad per segment) and the dots are small axis-aligned cubes.
+ * <p>Drawn in the 3D pass (camera-relative, depth disabled): the curve is a camera-facing
+ * ribbon, the dots are small axis-aligned cubes.
  */
 public class MotionPath
 {
@@ -86,21 +78,42 @@ public class MotionPath
      * always-applied actions don't perturb the sampled bone path. */
     private static final String[] ACTION_KEYS = {
         "idle", "running", "sprinting", "crouching", "crouching_idle", "dying", "falling",
+        "swimming", "swimming_idle", "riding", "riding_idle", "flying", "flying_idle",
         "swipe", "jump", "jump_alt", "hurt", "land", "shoot", "consume", "base_pre", "base_post"
     };
 
-    public static void render(WorldRenderContext context, ValueMotionPath config, UIFilmController controller, Replay replay, Pair<String, Boolean> bone, float currentTick)
+    public static void render(WorldRenderContext context, ValueMotionPath config, UIFilmController controller, Replay replay, FilmTarget target, float currentTick)
     {
         if (replay == null || replay.relative.get())
         {
             return;
         }
 
-        String bonePath = bone == null ? null : bone.a;
+        /* The same target the gizmo is on, so the path is the trajectory of the thing being
+         * dragged. Root is the fallback in both senses: the target's own, and what a bone or
+         * anchor falls back to when its path cannot be sampled (no form, no world yet).
+         *
+         * A crowd waypoint is sampled from the crowd's own walk rather than from a bone: there
+         * is no entity whose bone it could be, the path IS the thing being edited. */
+        Trajectory trajectory;
 
-        Trajectory trajectory = controller.isCrowdMotionGizmo()
-            ? crowdTrajectory(replay)
-            : bonePath == null ? null : boneTrajectory(controller, replay, bonePath);
+        if (target == null || target.is(FilmTarget.Kind.ROOT) || target.isNone())
+        {
+            trajectory = null;
+        }
+        else if (target.is(FilmTarget.Kind.CROWD_MOTION))
+        {
+            trajectory = crowdTrajectory(replay);
+        }
+        else if (target.is(FilmTarget.Kind.REPLAY_SHIFT))
+        {
+            /* The shift moves every selected replay at once - no single trajectory to draw. */
+            trajectory = null;
+        }
+        else
+        {
+            trajectory = sampledTrajectory(controller, replay, target);
+        }
 
         if (trajectory == null)
         {
@@ -398,7 +411,9 @@ public class MotionPath
 
     /* Bone trajectory: simulated per tick on a scratch entity, cached. */
 
-    private static Trajectory boneTrajectory(UIFilmController controller, Replay replay, String bonePath)
+    /** The trajectory of a bone or of the form's anchor: both are sampled by posing a scratch
+     *  entity tick by tick and reading a matrix off it, and differ only in which matrix. */
+    private static Trajectory sampledTrajectory(UIFilmController controller, Replay replay, FilmTarget target)
     {
         World world = MinecraftClient.getInstance().world;
         Form form = replay.form.get();
@@ -416,11 +431,11 @@ public class MotionPath
          * seed so each recompute drifted ~1cm — and self-triggering (a single off-sequence sample
          * never matches the in-sequence cached value). Without it the cached path is stable while
          * idle and only rebuilt on a real edit. */
-        String signature = signature(replay, bonePath);
+        String signature = signature(replay, target);
 
         if (boneCache == null || !signature.equals(boneCacheSignature))
         {
-            boneCache = computeBoneTrajectory(entities, replay, bonePath);
+            boneCache = computeSampledTrajectory(entities, replay, target);
             boneCacheSignature = signature;
         }
 
@@ -462,7 +477,7 @@ public class MotionPath
         return true;
     }
 
-    private static BoneTrajectory computeBoneTrajectory(Map<String, IEntity> entities, Replay replay, String bonePath)
+    private static BoneTrajectory computeSampledTrajectory(Map<String, IEntity> entities, Replay replay, FilmTarget target)
     {
         float[] range = range(replay);
 
@@ -479,7 +494,7 @@ public class MotionPath
 
         for (int i = 0; i < count; i++)
         {
-            if (!sampleBoneWorld(entities, replay, bonePath, base + i, LIVE))
+            if (!sampleTargetWorld(entities, replay, target, base + i, LIVE))
             {
                 return null;
             }
@@ -490,11 +505,11 @@ public class MotionPath
         }
 
         TreeSet<Float> ticks = new TreeSet<>();
-        String boneName = bonePath.contains(".") ? bonePath.substring(bonePath.lastIndexOf('.') + 1) : bonePath;
+        String marker = trackMarker(target);
 
         for (KeyframeChannel<?> channel : replay.properties.tracks.values())
         {
-            if (channel.getId() != null && channel.getId().contains(boneName))
+            if (channel.getId() != null && channel.getId().contains(marker))
             {
                 collectTicks(ticks, channel);
             }
@@ -503,8 +518,21 @@ public class MotionPath
         return new BoneTrajectory(base, count, points, range[0], range[1], ticks);
     }
 
-    /** Pose the scratch entity at {@code tick} and read the bone's world position (camera at origin). */
-    private static boolean sampleBoneWorld(Map<String, IEntity> entities, Replay replay, String bonePath, int tick, Vector3d out)
+    /** Which property tracks put a keyframe dot on the path: the ones naming this target. */
+    private static String trackMarker(FilmTarget target)
+    {
+        if (target.is(FilmTarget.Kind.ANCHOR))
+        {
+            return "anchor";
+        }
+
+        String bonePath = target.bone();
+
+        return bonePath.contains(".") ? bonePath.substring(bonePath.lastIndexOf('.') + 1) : bonePath;
+    }
+
+    /** Pose the scratch entity at {@code tick} and read the target's world position (camera at origin). */
+    private static boolean sampleTargetWorld(Map<String, IEntity> entities, Replay replay, FilmTarget target, int tick, Vector3d out)
     {
         StubEntity entity = scratchEntity;
 
@@ -513,7 +541,9 @@ public class MotionPath
         entity.getForm().update(entity);
         replay.properties.applyProperties(entity.getForm(), tick);
 
-        Matrix4f matrix = FilmMatrices.getBoneCompositeMatrix(entities, entity, replay, 0D, 0D, 0D, 0F, bonePath, false);
+        Matrix4f matrix = target.is(FilmTarget.Kind.ANCHOR)
+            ? FilmMatrices.getGizmoAnchorCompositeMatrix(entities, entity, replay, 0D, 0D, 0D, 0F)
+            : FilmMatrices.getBoneCompositeMatrix(entities, entity, replay, 0D, 0D, 0D, 0F, target.bone(), false);
 
         if (matrix == null)
         {
@@ -672,9 +702,13 @@ public class MotionPath
         return channel.isEmpty() ? -Float.MAX_VALUE : channel.get(channel.getKeyframes().size() - 1).getTick();
     }
 
-    private static String signature(Replay replay, String bonePath)
+    private static String signature(Replay replay, FilmTarget target)
     {
-        StringBuilder builder = new StringBuilder(replay.getId()).append('|').append(bonePath);
+        /* The kind is part of the key, not just the bone path: a null path would make the anchor
+         * and "no bone" hash alike and hand one the other's cached path. */
+        StringBuilder builder = new StringBuilder(replay.getId())
+            .append('|').append(target.kind())
+            .append('|').append(target.bone());
 
         signature(builder, replay.keyframes.x);
         signature(builder, replay.keyframes.y);
@@ -691,10 +725,18 @@ public class MotionPath
 
     private static void signature(StringBuilder builder, KeyframeChannel<?> channel)
     {
-        /* Hash the channel's serialized data so the signature changes on value edits (re-posing a
-         * bone), not only on add/remove/move — the path follows a gizmo drag without a per-frame
-         * resample of the bone. */
-        builder.append(':').append(channel.toData().toString().hashCode());
+        /* A content hash so the signature changes on value edits (re-posing a bone), not only on
+         * add/remove/move — the path follows a gizmo drag without a per-frame resample of the
+         * bone. Field mixing, not serialization: the old toData().toString() built the whole
+         * data tree and a giant string for every channel every frame. */
+        int hash = 1;
+
+        for (Keyframe<?> keyframe : channel.getKeyframes())
+        {
+            hash = 31 * hash + keyframe.contentHash();
+        }
+
+        builder.append(':').append(hash);
     }
 
     private static void collectTicks(TreeSet<Float> ticks, KeyframeChannel<?> channel)

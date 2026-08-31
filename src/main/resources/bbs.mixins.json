@@ -18,7 +18,9 @@
         "LivingEntityCrowdCostMixin",
         "LivingEntityCrowdBodyMixin",
         "LookControlCrowdMixin",
-        "EntityViewCrowdCollisionMixin"
+        "EntityViewCrowdCollisionMixin",
+        "EntityInvoker",
+        "LivingEntityRollAccessor"
     ],
     "injectors": {
         "defaultRequire": 1

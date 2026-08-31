@@ -7,6 +7,7 @@ import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.colors.Colors;
 import org.joml.Matrix4f;
+import org.joml.Vector3d;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.render.Camera;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -31,22 +32,26 @@ public class FilmControllerContext
     public int color;
     public float shadowRadius;
 
-    public String bone;
-    public boolean local;
+    /** What the gizmo is on this frame — bone, anchor or the replay's own placement — and
+     *  the frame it is placed and drawn in. ONE field for the whole cascade: the passes that
+     *  draw the gizmo and the pass that picks it are built from the same answer, so a target
+     *  cannot reach one of them and not the other. {@link FilmTarget#NONE} draws nothing. */
+    public FilmTarget gizmoTarget = FilmTarget.NONE;
 
-    /** The reference frame the bone gizmo is drawn in, and the film camera's
-     *  world&rarr;camera rotation used to reorient it (null keeps LOCAL). */
-    public TransformSpace space = TransformSpace.LOCAL;
+    /** The film camera's world&rarr;camera rotation, used to reorient the gizmo. */
     public Matrix4f gizmoView;
 
     public String bone2;
-    public boolean local2;
 
-    /** Draw the editing gizmo at the entity's resolved {@code form.anchor} matrix. */
-    public boolean anchorGizmo;
-    public boolean anchorLocal;
+    /** The preview axes' frame; always LOCAL today — the preview shows the bone's own axes. */
+    public TransformSpace space2 = TransformSpace.LOCAL;
+
+    /** Payload for {@link FilmTarget.Kind#CROWD_MOTION}: the waypoint being dragged, and its tick. */
     public CrowdWalk crowdMotionPoint;
     public float crowdMotionTick;
+
+    /** Payload for {@link FilmTarget.Kind#REPLAY_SHIFT}: where the shared handle stands. */
+    public Vector3d replayShiftPosition;
 
     public String nameTag = "";
     public boolean relative;
@@ -59,16 +64,13 @@ public class FilmControllerContext
         this.map = null;
         this.shadowRadius = 0F;
         this.color = Colors.WHITE;
-        this.bone = null;
-        this.local = false;
-        this.space = TransformSpace.LOCAL;
+        this.gizmoTarget = FilmTarget.NONE;
         this.gizmoView = null;
         this.bone2 = null;
-        this.local2 = false;
-        this.anchorGizmo = false;
-        this.anchorLocal = false;
+        this.space2 = TransformSpace.LOCAL;
         this.crowdMotionPoint = null;
         this.crowdMotionTick = 0F;
+        this.replayShiftPosition = null;
         this.nameTag = "";
         this.relative = false;
     }
@@ -138,35 +140,26 @@ public class FilmControllerContext
         return this;
     }
 
-    public FilmControllerContext bone(String bone, boolean local)
+    /** What the gizmo edits and the frame it is edited in, as one answer. */
+    public FilmControllerContext gizmoTarget(FilmTarget target)
     {
-        this.bone = bone;
-        this.local = local;
+        this.gizmoTarget = target == null ? FilmTarget.NONE : target;
 
         return this;
     }
 
-    /** Set the space and camera view used to reorient the bone gizmo (Phase C). */
-    public FilmControllerContext gizmoSpace(TransformSpace space, Matrix4f view)
+    /** The film camera's view rotation, needed to reorient the gizmo. */
+    public FilmControllerContext gizmoView(Matrix4f view)
     {
-        this.space = space;
         this.gizmoView = view;
 
         return this;
     }
 
-    public FilmControllerContext bone2(String bone, boolean local)
+    public FilmControllerContext bone2(String bone, TransformSpace space)
     {
         this.bone2 = bone;
-        this.local2 = local;
-
-        return this;
-    }
-
-    public FilmControllerContext anchorGizmo(boolean anchorGizmo, boolean anchorLocal)
-    {
-        this.anchorGizmo = anchorGizmo;
-        this.anchorLocal = anchorLocal;
+        this.space2 = space == null ? TransformSpace.LOCAL : space;
 
         return this;
     }
@@ -175,6 +168,13 @@ public class FilmControllerContext
     {
         this.crowdMotionPoint = point;
         this.crowdMotionTick = tick;
+
+        return this;
+    }
+
+    public FilmControllerContext replayShiftGizmo(Vector3d position)
+    {
+        this.replayShiftPosition = position;
 
         return this;
     }

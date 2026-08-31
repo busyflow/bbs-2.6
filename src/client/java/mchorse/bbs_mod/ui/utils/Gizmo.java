@@ -19,13 +19,13 @@ import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.utils.Axis;
 import mchorse.bbs_mod.utils.MatrixStackUtils;
 import mchorse.bbs_mod.utils.colors.Colors;
-import mchorse.bbs_mod.utils.MathUtils;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
+import com.mojang.blaze3d.platform.GlStateManager;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.client.gl.GlUniform;
@@ -38,6 +38,7 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 
+import java.util.EnumSet;
 import java.util.function.Supplier;
 
 public class Gizmo
@@ -170,6 +171,14 @@ public class Gizmo
      *  pass so the drawn gizmo and its pick hitbox scale together. */
     private float viewportScale = 1F;
 
+    /** What the edited target can actually accept this frame ({@link HandleMask}).
+     *  Captured together with the render matrix, because both draw passes run
+     *  later, in the UI pass, and must be laid out from the same description as
+     *  the world pass that placed the gizmo. Reset to {@link HandleMask#ALL} by
+     *  the plain capture calls, so a restricted target cannot leak its mask into
+     *  the next editor's gizmo. */
+    private HandleMask mask = HandleMask.ALL;
+
     private Gizmo()
     {}
 
@@ -264,7 +273,7 @@ public class Gizmo
 
     public boolean isSphereInteractive()
     {
-        if (!BBSSettings.gizmos.get() || !Element.SPHERE.isVisible())
+        if (!BBSSettings.gizmos.get() || !Element.SPHERE.isVisible() || !this.mask.allows(Op.TRACKBALL))
         {
             return false;
         }
@@ -418,6 +427,17 @@ public class Gizmo
      * are the same pair {@link #computeScreenCenter} uses, so the mask lands on
      * the sphere's footprint regardless of mask resolution.
      */
+    /* What the hover mask currently holds, so a still sphere is not re-drawn every hovered
+     * frame — the mask used to be a window-sized clear plus a full-viewport composite per
+     * frame; now it is the sphere's own rectangle, re-drawn only when that moved. */
+    private final Matrix4f lastMaskMatrix = new Matrix4f();
+    private final Matrix4f lastMaskProjection = new Matrix4f();
+    private int lastMaskX;
+    private int lastMaskY;
+    private int lastMaskW;
+    private int lastMaskH;
+    private boolean maskValid;
+
     public void renderSphereHighlight(UIContext context, Matrix4f projection, Area area)
     {
         if (!this.sphereHovered || !this.hasLastSphereMatrix || !this.isSphereInteractive()
@@ -426,36 +446,110 @@ public class Gizmo
             return;
         }
 
+        /* The highlight only ever lights the sphere's own footprint, so both the mask and the
+         * composite live in that footprint's rectangle rather than the whole viewport. */
+        Vector2f center = new Vector2f();
+
+        if (!this.computeScreenCenter(projection, area.x, area.y, area.w, area.h, center))
+        {
+            return;
+        }
+
+        float radius = this.computeScreenRadius(projection, area.x, area.y, area.w, area.h);
+
+        if (radius <= 0F)
+        {
+            return;
+        }
+
+        int margin = 4;
+        int rectX = Math.max(area.x, (int) Math.floor(center.x - radius) - margin);
+        int rectY = Math.max(area.y, (int) Math.floor(center.y - radius) - margin);
+        int rectEndX = Math.min(area.ex(), (int) Math.ceil(center.x + radius) + margin);
+        int rectEndY = Math.min(area.ey(), (int) Math.ceil(center.y + radius) + margin);
+        int rw = rectEndX - rectX;
+        int rh = rectEndY - rectY;
+
+        if (rw <= 0 || rh <= 0)
+        {
+            return;
+        }
+
         MinecraftClient mc = MinecraftClient.getInstance();
+        float pixelScale = mc.getWindow().getFramebufferWidth() / (float) Math.max(1, context.menu.width);
+        int pw = Math.max(1, Math.min(512, Math.round(rw * pixelScale)));
+        int ph = Math.max(1, Math.min(512, Math.round(rh * pixelScale)));
+        float scaleX = pw / (float) rw;
+        float scaleY = ph / (float) rh;
 
         this.sphereHighlight.setup(Link.bbs("gizmo_sphere_highlight"));
 
-        int w = mc.getWindow().getWidth();
-        int h = mc.getWindow().getHeight();
         Texture texture = this.sphereHighlight.getFramebuffer().getMainTexture();
 
-        if (texture.width != w || texture.height != h)
+        /* Grow-only, so a pixel of rectangle jitter doesn't reallocate the texture per frame. */
+        if (texture.width < pw || texture.height < ph)
         {
-            this.sphereHighlight.resize(w, h);
+            this.sphereHighlight.resize(Math.max(texture.width, pw), Math.max(texture.height, ph));
         }
 
-        this.sphereHighlight.apply();
+        boolean moved = !this.maskValid
+            || this.lastMaskX != rectX || this.lastMaskY != rectY
+            || this.lastMaskW != pw || this.lastMaskH != ph
+            || !this.lastMaskMatrix.equals(this.lastSphereMatrix)
+            || !this.lastMaskProjection.equals(projection);
 
-        /* The sphere matrix was captured with the lens already applied to it, so the
-         * mask has to be projected through the lens as well or it lands somewhere
-         * else entirely. An inactive lens hands the camera projection straight back. */
-        GizmoLens lens = new GizmoLens();
+        if (moved)
+        {
+            context.batcher.flush();
 
-        lens.set(projection, this.lastRenderMatrix);
+            boolean scissor = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
 
-        RenderSystem.disableDepthTest();
-        RenderSystem.setShaderColor(STENCIL_TRACKBALL / 255F, 0F, 0F, 1F);
-        this.rings.drawSphere(this.lastSphereMatrix, lens.projection);
-        RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
-        RenderSystem.enableDepthTest();
+            if (scissor)
+            {
+                GlStateManager._disableScissorTest();
+            }
 
-        this.sphereHighlight.unbind();
-        mc.getFramebuffer().beginWrite(true);
+            this.sphereHighlight.getFramebuffer().bind();
+            this.sphereHighlight.getFramebuffer().clear();
+
+            /* The sphere projects in the viewport's NDC; the viewport is oversized and offset so
+             * the rectangle's slice of it lands on the mask (GUI y runs down, GL y runs up). */
+            GL11.glViewport(
+                Math.round(-(rectX - area.x) * scaleX),
+                Math.round(-(area.ey() - rectY - rh) * scaleY),
+                Math.round(area.w * scaleX),
+                Math.round(area.h * scaleY)
+            );
+
+            /* The sphere matrix was captured with the lens already applied to it, so the
+             * mask has to be projected through the lens as well or it lands somewhere
+             * else entirely. An inactive lens hands the camera projection straight back. */
+            GizmoLens lens = new GizmoLens();
+
+            lens.set(projection, this.lastRenderMatrix);
+
+            RenderSystem.disableDepthTest();
+            RenderSystem.setShaderColor(STENCIL_TRACKBALL / 255F, 0F, 0F, 1F);
+            this.rings.drawSphere(this.lastSphereMatrix, lens.projection);
+            RenderSystem.setShaderColor(1F, 1F, 1F, 1F);
+            RenderSystem.enableDepthTest();
+
+            this.sphereHighlight.unbind();
+            mc.getFramebuffer().beginWrite(true);
+
+            if (scissor)
+            {
+                GlStateManager._enableScissorTest();
+            }
+
+            this.lastMaskMatrix.set(this.lastSphereMatrix);
+            this.lastMaskProjection.set(projection);
+            this.lastMaskX = rectX;
+            this.lastMaskY = rectY;
+            this.lastMaskW = pw;
+            this.lastMaskH = ph;
+            this.maskValid = true;
+        }
 
         ShaderProgram previewProgram = BBSShaders.getPickerPreviewProgram();
         GlUniform target = previewProgram.getUniform("Target");
@@ -475,7 +569,7 @@ public class Gizmo
         }
 
         RenderSystem.enableBlend();
-        context.batcher.texturedBox(BBSShaders::getPickerPreviewProgram, texture.id, Colors.WHITE, area.x, area.y, area.w, area.h, 0, texture.height, texture.width, 0, texture.width, texture.height);
+        context.batcher.texturedBox(BBSShaders::getPickerPreviewProgram, texture.id, Colors.WHITE, rectX, rectY, rw, rh, 0, ph, pw, 0, texture.width, texture.height);
     }
 
     public boolean start(int index, int mouseX, int mouseY, UIPropTransform transform)
@@ -492,7 +586,10 @@ public class Gizmo
 
         Handle handle = Handle.byIndex(index);
 
-        if (handle == null)
+        /* The mask already keeps a forbidden handle out of both draw passes, so a pick
+         * can't name one; the hotkey walk and any programmatic start bypass the stencil
+         * though, so the refusal lives here too. */
+        if (handle == null || !this.mask.allows(handle))
         {
             return false;
         }
@@ -535,6 +632,14 @@ public class Gizmo
         this.currentTransform = transform;
     }
 
+    /** The transform a gesture is currently running on, or {@code null}. Its owner may
+     *  well be off screen (the replay-root gizmo has no fields at all), which is why
+     *  {@link GizmoInteraction#update} drives it from here rather than from a render. */
+    public UIPropTransform getTrackedTransform()
+    {
+        return this.currentTransform;
+    }
+
     public void clearTrackedTransform(UIPropTransform transform)
     {
         if (this.currentTransform == transform)
@@ -563,10 +668,17 @@ public class Gizmo
 
     public void render(MatrixStack stack)
     {
+        this.render(stack, HandleMask.ALL);
+    }
+
+    public void render(MatrixStack stack, HandleMask mask)
+    {
         if (BBSRendering.isIrisShadowPass())
         {
             return;
         }
+
+        this.mask = mask == null ? HandleMask.ALL : mask;
 
         stack.push();
         MatrixStackUtils.scaleBack(stack);
@@ -584,10 +696,17 @@ public class Gizmo
      */
     public void captureVisual(MatrixStack stack)
     {
+        this.captureVisual(stack, HandleMask.ALL);
+    }
+
+    public void captureVisual(MatrixStack stack, HandleMask mask)
+    {
         if (BBSRendering.isIrisShadowPass())
         {
             return;
         }
+
+        this.mask = mask == null ? HandleMask.ALL : mask;
 
         stack.push();
         MatrixStackUtils.scaleBack(stack);
@@ -991,7 +1110,7 @@ public class Gizmo
      */
     private float innerScale()
     {
-        return Element.ROTATE.isVisible() ? INNER_SCALE : 1F;
+        return Element.ROTATE.isVisible() && this.mask.allows(Op.ROTATE) ? INNER_SCALE : 1F;
     }
 
     /** Washes a ring colour channel toward flat gray for IK-owned rotations. */
@@ -1002,6 +1121,11 @@ public class Gizmo
 
     public void renderStencil(MatrixStack stack)
     {
+        this.renderStencil(stack, HandleMask.ALL);
+    }
+
+    public void renderStencil(MatrixStack stack, HandleMask mask)
+    {
         if (BBSRendering.isIrisShadowPass())
         {
             return;
@@ -1011,6 +1135,8 @@ public class Gizmo
         {
             return;
         }
+
+        this.mask = mask == null ? HandleMask.ALL : mask;
 
         stack.push();
         MatrixStackUtils.scaleBack(stack);
@@ -1093,6 +1219,24 @@ public class Gizmo
     {
         this.lastRenderMatrix.set(stack.peek().getPositionMatrix());
         this.hasLastRenderMatrix = true;
+    }
+
+    /**
+     * Frame boundary: drop the captured placement, so a gizmo is drawn only where something
+     * placed it THIS frame — which is what every reader of it already assumes.
+     *
+     * <p>The capture used to be set once and never cleared, and this is a singleton shared by
+     * every editor. So the film's last bone position survived into the form editor and the
+     * model-block panel, which draw from the capture in the UI pass ({@link #renderInterface}):
+     * the gizmo appeared at a place belonging to a scene that was no longer on screen. Placing
+     * and drawing are always the same frame — the world pass captures, the UI pass draws — so
+     * forgetting at the boundary costs a live gizmo nothing.
+     */
+    public void forgetPlacement()
+    {
+        this.hasLastRenderMatrix = false;
+        this.hasLastSphereMatrix = false;
+        this.lastSphereLocalRadius = 0F;
     }
 
     /**
@@ -1248,9 +1392,12 @@ public class Gizmo
             float radius = 0.22F * scale;
             float ringThickness = 0.02F * scale * BBSSettings.axesThickness.get();
 
-            if (active == null || active == Handle.ROTATE_Z) sink.ring(Handle.ROTATE_Z, Axis.Z, radius, ringThickness, Colors.BLUE);
-            if (active == null || active == Handle.ROTATE_X) sink.ring(Handle.ROTATE_X, Axis.X, radius, ringThickness, Colors.RED);
-            if (active == null || active == Handle.ROTATE_Y) sink.ring(Handle.ROTATE_Y, Axis.Y, radius, ringThickness, Colors.GREEN);
+            /* A target may own only some of the three rotation axes (a replay's root turns
+             * about Y and pitches about X, but has nowhere to put roll), so each ring is
+             * filtered on its own axis rather than the group as a whole. */
+            if (layout.mask.allowsRotateAxis(Axis.Z) && (active == null || active == Handle.ROTATE_Z)) sink.ring(Handle.ROTATE_Z, Axis.Z, radius, ringThickness, Colors.BLUE);
+            if (layout.mask.allowsRotateAxis(Axis.X) && (active == null || active == Handle.ROTATE_X)) sink.ring(Handle.ROTATE_X, Axis.X, radius, ringThickness, Colors.RED);
+            if (layout.mask.allowsRotateAxis(Axis.Y) && (active == null || active == Handle.ROTATE_Y)) sink.ring(Handle.ROTATE_Y, Axis.Y, radius, ringThickness, Colors.GREEN);
         }
 
         /* The screen-space (billboard) view-rotation ring hides on its own element, not with
@@ -1296,7 +1443,7 @@ public class Gizmo
         /* Screen-space (view-plane) translate handle: a white cube at the centre, twice the
          * bars' thickness. Drawn before the planes so they overlay it, and after the rotation
          * rings so it stays visible when they are on screen too. */
-        if (showMove && (active == null || active == Handle.SCREEN))
+        if (showMove && layout.mask.allows(Op.SCREEN) && (active == null || active == Handle.SCREEN))
         {
             float screenHalf = SCREEN_CUBE_HALF * scale * thickness;
 
@@ -1306,7 +1453,7 @@ public class Gizmo
         /* Uniform-scale handle: the same centre cube, shown only when move isn't (with
          * both on screen the centre is the translate handle), so the pick is never
          * ambiguous between the two. */
-        if (showScale && !showMove && (active == null || active == Handle.SCALE_ALL))
+        if (showScale && !showMove && layout.mask.allows(Op.SCALE_ALL) && (active == null || active == Handle.SCALE_ALL))
         {
             float scaleAllHalf = SCREEN_CUBE_HALF * scale * thickness;
 
@@ -1345,11 +1492,15 @@ public class Gizmo
     {
         final Handle active = Gizmo.this.activeDragHandle();
 
-        final boolean showRings = Element.ROTATE.isVisible() && (this.active == null || this.active.op == Op.ROTATE);
-        final boolean showViewRing = Element.VIEW_ROTATE.isVisible() && (this.active == null || this.active.op == Op.VIEW);
+        /* Settings say what the user wants to see, the mask says what the target can
+         * accept at all — a handle needs both to reach the screen and the cursor. */
+        final HandleMask mask = Gizmo.this.mask;
 
-        final boolean showMove = Element.TRANSLATE.isVisible() && (this.active == null || this.active.op == Op.MOVE || this.active.op == Op.SCREEN);
-        final boolean showScale = Element.SCALE.isVisible() && (this.active == null || this.active.op == Op.SCALE || this.active.op == Op.SCALE_ALL);
+        final boolean showRings = Element.ROTATE.isVisible() && mask.allows(Op.ROTATE) && (this.active == null || this.active.op == Op.ROTATE);
+        final boolean showViewRing = Element.VIEW_ROTATE.isVisible() && mask.allows(Op.VIEW) && (this.active == null || this.active.op == Op.VIEW);
+
+        final boolean showMove = Element.TRANSLATE.isVisible() && mask.allows(Op.MOVE) && (this.active == null || this.active.op == Op.MOVE || this.active.op == Op.SCREEN);
+        final boolean showScale = Element.SCALE.isVisible() && mask.allows(Op.SCALE) && (this.active == null || this.active.op == Op.SCALE || this.active.op == Op.SCALE_ALL);
         final boolean showRotate = this.showRings || this.showViewRing;
 
         final float scale = BBSSettings.axesScale.get();
@@ -1548,6 +1699,59 @@ public class Gizmo
             ValueBoolean value = this.setting.get();
 
             return value == null || value.get();
+        }
+    }
+
+    /**
+     * Which handles the edited target can accept at all, as opposed to which ones the
+     * user chose to see ({@link Element}). The two are separate questions: a setting
+     * hides a handle the target could have driven, a mask drops one the target has
+     * nowhere to write &mdash; a replay's root has no scale and no roll, so those
+     * handles must not be drawn, must not reach the pick stencil and must not start a
+     * gesture, whatever the settings say.
+     *
+     * <p>Passed to the capture calls rather than kept as a mode, so it travels with the
+     * frame it describes and both passes read the same one.
+     */
+    public static final class HandleMask
+    {
+        /** No restriction &mdash; a full {@link mchorse.bbs_mod.utils.pose.Transform} target. */
+        public static final HandleMask ALL = new HandleMask(EnumSet.allOf(Op.class), EnumSet.allOf(Axis.class));
+
+        private final EnumSet<Op> ops;
+        private final EnumSet<Axis> rotateAxes;
+
+        public static HandleMask of(EnumSet<Op> ops, EnumSet<Axis> rotateAxes)
+        {
+            return new HandleMask(ops, rotateAxes);
+        }
+
+        private HandleMask(EnumSet<Op> ops, EnumSet<Axis> rotateAxes)
+        {
+            this.ops = EnumSet.copyOf(ops);
+            this.rotateAxes = EnumSet.copyOf(rotateAxes);
+        }
+
+        public boolean allows(Op op)
+        {
+            return this.ops.contains(op);
+        }
+
+        public boolean allowsRotateAxis(Axis axis)
+        {
+            return this.rotateAxes.contains(axis);
+        }
+
+        /** Whether a picked or hotkeyed handle may start a gesture: its operation must be
+         *  allowed, and an axis ring's axis must be too. */
+        public boolean allows(Handle handle)
+        {
+            if (handle == null || !this.allows(handle.op))
+            {
+                return false;
+            }
+
+            return handle.op != Op.ROTATE || this.allowsRotateAxis(handle.axis);
         }
     }
 

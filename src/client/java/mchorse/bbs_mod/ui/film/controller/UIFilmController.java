@@ -1,6 +1,5 @@
 package mchorse.bbs_mod.ui.film.controller;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -14,16 +13,14 @@ import org.lwjgl.glfw.GLFW;
 import com.mojang.blaze3d.systems.RenderSystem;
 
 import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
-import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.BBSSettings;
 import mchorse.bbs_mod.camera.Camera;
 import mchorse.bbs_mod.camera.controller.RunnerCameraController;
 import mchorse.bbs_mod.film.BaseFilmController;
 import mchorse.bbs_mod.film.Film;
+import mchorse.bbs_mod.film.FilmTarget;
 import mchorse.bbs_mod.film.Recorder;
 import mchorse.bbs_mod.film.replays.Replay;
-import mchorse.bbs_mod.film.replays.ReplayKeyframes;
-import mchorse.bbs_mod.forms.FormUtilsClient;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.entities.MCEntity;
 import mchorse.bbs_mod.forms.forms.Form;
@@ -32,24 +29,23 @@ import mchorse.bbs_mod.graphics.window.Window;
 import mchorse.bbs_mod.l10n.keys.IKey;
 import mchorse.bbs_mod.morphing.Morph;
 import mchorse.bbs_mod.network.ClientNetwork;
-import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.ui.ValueMotionPath;
 import mchorse.bbs_mod.settings.values.ui.ValueOnionSkin;
 import mchorse.bbs_mod.ui.Keys;
 import mchorse.bbs_mod.ui.UIKeys;
+import mchorse.bbs_mod.ui.film.PreviewHud;
 import mchorse.bbs_mod.ui.film.UIFilmPanel;
-import mchorse.bbs_mod.ui.film.replays.UIRecordOverlayPanel;
 import mchorse.bbs_mod.ui.film.replays.UIReplayList;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditor;
 import mchorse.bbs_mod.ui.film.replays.UIReplaysEditorUtils;
 import mchorse.bbs_mod.actions.crowd.CrowdWalk;
 import mchorse.bbs_mod.forms.forms.CrowdForm;
+import mchorse.bbs_mod.ui.forms.UIFormPalette;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIContext;
 import mchorse.bbs_mod.ui.framework.elements.UIElement;
-import mchorse.bbs_mod.ui.framework.elements.buttons.UIIcon;
 import mchorse.bbs_mod.ui.framework.elements.context.UISimpleContextMenu;
 import mchorse.bbs_mod.ui.film.replays.ReplayGizmoTransform;
 import mchorse.bbs_mod.utils.pose.Transform;
@@ -61,7 +57,6 @@ import mchorse.bbs_mod.film.FilmEntityRenderer;
 import mchorse.bbs_mod.ui.framework.elements.input.UIPropTransform;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.UIKeyframeEditor;
 import mchorse.bbs_mod.ui.framework.elements.overlay.UIOverlay;
-import mchorse.bbs_mod.ui.framework.elements.utils.FontRenderer;
 import mchorse.bbs_mod.ui.utils.Area;
 import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.ui.utils.GizmoInteraction;
@@ -75,9 +70,9 @@ import mchorse.bbs_mod.ui.utils.keys.KeyAction;
 import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.Pair;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.utils.PlayerUtils;
 import mchorse.bbs_mod.utils.RayTracing;
-import mchorse.bbs_mod.utils.colors.Colors;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.option.GameOptions;
@@ -337,11 +332,6 @@ public class UIFilmController extends UIElement implements GizmoViewport
         this.orbit.enabled = this.pov > 1;
 
         BBSSettings.editorCameraMode.set(this.pov);
-    }
-
-    private int getMouseMode()
-    {
-        return this.mouse.getMode();
     }
 
     /**
@@ -793,6 +783,17 @@ public class UIFilmController extends UIElement implements GizmoViewport
     {
         if (this.orbit.enabled)
         {
+            /* Flight flies the camera, whatever the mode would have done with it: a camera
+             * mode that places the camera steps aside, and the orbit only keeps track of
+             * where the flight left it, so taking over again neither jumps nor loses its
+             * anchor. The FOV is driven live by the flight camera too. */
+            if (this.panel.isFlying())
+            {
+                this.orbit.follow(camera, transition);
+
+                return;
+            }
+
             int mode = this.getPovMode();
 
             if (mode == CAMERA_MODE_ORBIT)
@@ -804,11 +805,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
                 this.handleFirstThirdPerson(camera, transition, mode);
             }
 
-            /* While flying, the FOV is driven live by the flight camera, so don't overwrite it */
-            if (!this.panel.isFlying())
-            {
-                camera.fov = BBSSettings.getFov();
-            }
+            camera.fov = BBSSettings.getFov();
         }
     }
 
@@ -869,9 +866,9 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
     /* Render */
 
-    public void renderHUD(UIContext context, Area area)
+    public void renderHUD(UIContext context, PreviewHud hud, Area navBlock)
     {
-        this.hud.render(context, area);
+        this.hud.render(context, hud, navBlock);
     }
 
     public void startRenderFrame(float tickDelta)
@@ -910,9 +907,11 @@ public class UIFilmController extends UIElement implements GizmoViewport
         {
             boolean pinned = this.motionPathPin.isPinned();
             Replay replay = pinned ? this.motionPathPin.getReplay() : this.getReplay();
-            Pair<String, Boolean> bone = pinned ? this.motionPathPin.getBone() : this.getBone();
+            FilmTarget target = pinned ? this.motionPathPin.getTarget() : this.getEditTarget();
 
-            MotionPath.render(context, motionPath, this, replay, bone, replay == null ? 0F : replay.getTick(this.getTick()));
+            BBSProfiler.begin(BBSProfiler.Timer.MOTION_PATH);
+            MotionPath.render(context, motionPath, this, replay, target, replay == null ? 0F : replay.getTick(this.getTick()));
+            BBSProfiler.end(BBSProfiler.Timer.MOTION_PATH);
         }
 
         this.mouse.trackCursor(this.canControl(), ClientNetwork.isIsBBSModOnServer());
@@ -922,7 +921,8 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
     private void renderOrbitCenterMarker(WorldRenderContext context)
     {
-        if (this.getPovMode() != CAMERA_MODE_ORBIT || !BBSSettings.editorOrbitCenterMarker.get())
+        /* Nothing is turning around it while the camera is being flown. */
+        if (this.getPovMode() != CAMERA_MODE_ORBIT || this.panel.isFlying() || !BBSSettings.editorOrbitCenterMarker.get())
         {
             return;
         }
@@ -970,7 +970,7 @@ public class UIFilmController extends UIElement implements GizmoViewport
     /** The selection {@link #replayShift} was built from, so a change of selection can be noticed. */
     private List<Replay> replayShiftSelection;
 
-    public Pair<String, Boolean> getBone()
+    public Pair<String, TransformSpace> getBone()
     {
         /* The shift gizmo owns the viewport while it is up. */
         if (this.isReplayShiftGizmo())
@@ -981,14 +981,6 @@ public class UIFilmController extends UIElement implements GizmoViewport
         UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
 
         return keyframeEditor != null ? keyframeEditor.getBone() : null;
-    }
-
-    /** The space the bone gizmo should be drawn in (active transform's space). */
-    public TransformSpace getBoneSpace()
-    {
-        UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
-
-        return keyframeEditor != null ? keyframeEditor.getBoneSpace() : TransformSpace.LOCAL;
     }
 
     /** The film camera's world&rarr;camera rotation, for reorienting the gizmo into a space. */
@@ -1010,11 +1002,92 @@ public class UIFilmController extends UIElement implements GizmoViewport
         return keyframeEditor != null && keyframeEditor.isFormAnchorTrack();
     }
 
-    public boolean getAnchorLocal()
+    /** The frame the anchor gizmo is placed, drawn and dragged in. */
+    public TransformSpace getAnchorSpace()
     {
         UIKeyframeEditor keyframeEditor = this.panel.replayEditor.keyframeEditor;
 
-        return keyframeEditor != null && keyframeEditor.getAnchorLocal();
+        return keyframeEditor == null ? TransformSpace.LOCAL : keyframeEditor.getAnchorSpace();
+    }
+
+    /**
+     * What the editor is editing right now — the ONE place the bone / anchor / replay-root
+     * cascade is decided. Every consumer (the gizmo's placement pass, its pick pass, the
+     * drag builder, the motion path, the HUD) reads this instead of re-deriving it; a level
+     * added here reaches all of them at once, which is the whole point. It used to be four
+     * independent derivations, and the one that got missed produced a gizmo that was drawn
+     * and could not be clicked.
+     *
+     * <p>A selected bone wins, then the anchor track, then the replay's placement. Only the
+     * last is gated on the replay editor being the chosen one — while the camera timeline is
+     * up an actor gizmo would just be in the way, whereas a bone the user explicitly picked
+     * stays picked. Chosen, not visible: see {@link UIFilmPanel#isReplayEditorSelected}.
+     */
+    public FilmTarget getEditTarget()
+    {
+        if (this.isRecording() || this.isCovered())
+        {
+            return FilmTarget.NONE;
+        }
+
+        /* The fork's two gizmos come first, and both already make the ones below stand down -
+         * getBone and isAnchorGizmo return nothing while the replay shift is up. Answering it
+         * here as well is what puts them on upstream's single cascade rather than beside it:
+         * every pass that draws or picks a gizmo asks this one question. */
+        if (this.isReplayShiftGizmo())
+        {
+            return FilmTarget.replayShift();
+        }
+
+        if (this.isCrowdMotionGizmo())
+        {
+            return FilmTarget.crowdMotion();
+        }
+
+        Pair<String, TransformSpace> bone = this.getBone();
+
+        if (bone != null)
+        {
+            return FilmTarget.bone(bone.a, bone.b);
+        }
+
+        if (this.isAnchorGizmo())
+        {
+            return FilmTarget.anchor(this.getAnchorSpace());
+        }
+
+        UIReplaysEditor editor = this.panel.replayEditor;
+        Replay replay = editor == null ? null : editor.getReplay();
+
+        if (editor != null
+            && this.panel.isReplayEditorSelected()
+            && replay != null
+            && replay.enabled.get()
+            && this.getCurrentEntity() != null)
+        {
+            return FilmTarget.root(editor.replayTransform.getSpace());
+        }
+
+        return FilmTarget.NONE;
+    }
+
+    /**
+     * Whether the film's own viewport is hidden behind a full-screen editor. The form editor
+     * ({@link UIFormPalette}) is not a dashboard panel of its own — it is added as a full-size
+     * CHILD of the film panel's container — so the film stays the dashboard's current panel and
+     * keeps running its world pass underneath. Left ungated it goes on placing and drawing its
+     * gizmo behind the form editor, and since {@link mchorse.bbs_mod.ui.utils.Gizmo} is a
+     * singleton the two then take turns over one captured placement: the film's bone shows up in
+     * the middle of the form editor's scene.
+     *
+     * <p>Answered here rather than at the draw, so the film stops CLAIMING the gizmo at all — no
+     * placement, no visual, no pick — instead of every consumer having to remember.
+     */
+    private boolean isCovered()
+    {
+        UIElement root = this.panel.getRoot();
+
+        return root != null && !root.getChildren(UIFormPalette.class).isEmpty();
     }
 
     /**
@@ -1122,10 +1195,10 @@ public class UIFilmController extends UIElement implements GizmoViewport
 
     /**
      * Whether the preview gizmo is actually drawn right now — the same gate the
-     * renderer uses ({@link BaseFilmController#render}): axes enabled, not
-     * recording, and a bone selected. The gizmo interaction must honour it, or
-     * its trackball sphere keeps grabbing clicks (and blocking actor markers)
-     * after a keyframe is deselected and nothing is rendered.
+     * renderer uses ({@link BaseFilmController#render}): axes enabled and something
+     * selected. The gizmo interaction must honour it, or its trackball sphere keeps
+     * grabbing clicks (and blocking actor markers) after a keyframe is deselected and
+     * nothing is rendered.
      */
     public boolean isReplayShiftGizmo()
     {
@@ -1284,18 +1357,39 @@ public class UIFilmController extends UIElement implements GizmoViewport
         this.renderReplayShiftGizmo(context, map);
     }
 
-    /** Keep a live shift drag following the cursor; nothing else drives this transform. */
+    /**
+     * Where the shared shift handle stands, for the passes that draw and pick it.
+     *
+     * <p>Null when the shift is not up, which is what {@link FilmControllerContext} stores and
+     * what tells the renderer there is nothing to place.</p>
+     */
+    public Vector3d getReplayShiftPosition()
+    {
+        return this.isReplayShiftGizmo()
+            ? this.replayShift.getGizmoPosition(this.replayShiftTransform.getTransform())
+            : null;
+    }
+
+    /**
+     * Keep a live shift drag following the cursor.
+     *
+     * <p>Upstream grew the same need for its replay-root gizmo and answered it generally: the
+     * transform is pumped every frame from {@code GizmoInteraction#update}, and the fork's own
+     * {@code updateGesture} was that idea in one place only. Kept as a call into upstream's
+     * {@link UIPropTransform#pumpDrag} rather than deleted, because this transform is not
+     * reachable from the keyframe editor that the general pump walks.</p>
+     */
     public void updateReplayShiftGesture(UIContext context)
     {
         if (this.isReplayShiftGizmo())
         {
-            this.replayShiftTransform.updateGesture(context);
+            this.replayShiftTransform.pumpDrag(context);
         }
     }
 
     boolean canShowGizmo()
     {
-        return UIBaseMenu.shouldRenderAxes() && !this.isRecording() && (this.isReplayShiftGizmo() || this.getBone() != null || this.isAnchorGizmo() || this.isCrowdMotionGizmo());
+        return UIBaseMenu.shouldRenderAxes() && !this.getEditTarget().isNone();
     }
 
 }

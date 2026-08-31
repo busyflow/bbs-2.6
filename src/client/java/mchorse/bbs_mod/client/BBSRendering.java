@@ -23,7 +23,11 @@ import mchorse.bbs_mod.ui.framework.UIBaseMenu;
 import mchorse.bbs_mod.ui.framework.UIScreen;
 import mchorse.bbs_mod.ui.framework.elements.utils.Batcher2D;
 import mchorse.bbs_mod.ui.utils.icons.Icons;
+import mchorse.bbs_mod.cubic.model.ModelSetupQueue;
+import mchorse.bbs_mod.forms.renderers.utils.RenderFrame;
+import mchorse.bbs_mod.ui.utils.Gizmo;
 import mchorse.bbs_mod.utils.colors.Color;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.iris.IrisUtils;
 import mchorse.bbs_mod.utils.iris.ShaderCurves;
@@ -370,6 +374,17 @@ public class BBSRendering
         orthoDistance = -1F;
 
         MinecraftClient mc = MinecraftClient.getInstance();
+
+        /* The frame boundary the profiler's counters roll over on; the flag is mirrored here
+         * so the hot-path checks read a plain static boolean. */
+        BBSProfiler.enabled = BBSSettings.profilerOverlay != null && BBSSettings.profilerOverlay.get();
+        BBSProfiler.frame();
+        RenderFrame.nextFrame();
+        Gizmo.INSTANCE.forgetPlacement();
+
+        /* The budgeted tail of model loading: VAO bakes for whatever the background loader
+         * finished, a few milliseconds' worth per frame instead of all of them at once. */
+        ModelSetupQueue.drain();
 
         BBSModClient.getVideos().startFrame();
         BBSModClient.getFilms().startRenderFrame(mc.getTickDelta());

@@ -4,6 +4,7 @@ import mchorse.bbs_mod.BBSMod;
 import mchorse.bbs_mod.data.types.BaseType;
 import mchorse.bbs_mod.film.crowds.CrowdReconciler;
 import mchorse.bbs_mod.film.crowds.Crowds;
+import mchorse.bbs_mod.film.markers.FilmMarkers;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.film.replays.Replays;
 import mchorse.bbs_mod.settings.values.core.ValueGroup;
@@ -36,6 +37,9 @@ public class Film extends ValueGroup
      * over a stretch of the film, kept in line with the world by {@link CrowdReconciler}.
      */
     public final Crowds crowds = new Crowds("crowds");
+    /** Author's notes pinned to ticks, drawn on every timeline's ruler. */
+    public final FilmMarkers markers = new FilmMarkers("markers");
+
     public final ValueFloat hp = new ValueFloat("hp", 20F);
     public final ValueFloat hunger = new ValueFloat("hunger", 20F);
     public final ValueInt xpLevel = new ValueInt("xp_level", 0);
@@ -61,6 +65,7 @@ public class Film extends ValueGroup
         this.add(this.replays);
         this.add(this.replayCategoryNames);
         this.add(this.crowds);
+        this.add(this.markers);
 
         this.add(this.hp);
         this.add(this.hunger);

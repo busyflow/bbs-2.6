@@ -80,16 +80,22 @@ public class UIKeyframeEditor extends UITimelinePanel
 
         if (keyframe != null)
         {
+            /* Null when the keyframe's type has no editor registered: the track still works, it
+             * just gets no properties panel. It used to be dereferenced straight away, so a type
+             * whose registration went missing crashed on the click that selected a keyframe. */
             this.editor = UIKeyframeFactory.createPanel(keyframe, this.view);
 
-            this.attachPropertiesPanel(this.editor, 140);
-            this.editor.setVisible(this.propertiesVisible);
-            this.resize();
-
-            if (this.target != null)
+            if (this.editor != null)
             {
-                this.target.resize();
-                this.editor.resize();
+                this.attachPropertiesPanel(this.editor, 140);
+                this.editor.setVisible(this.propertiesVisible);
+                this.resize();
+
+                if (this.target != null)
+                {
+                    this.target.resize();
+                    this.editor.resize();
+                }
             }
         }
 
@@ -141,11 +147,13 @@ public class UIKeyframeEditor extends UITimelinePanel
         return null;
     }
 
-    public Pair<String, Boolean> getBone()
+    /** The bone the film gizmo edits, paired with the frame it is edited in — one
+     *  dispatch, one answer, so the placement and the drag cannot disagree. */
+    public Pair<String, TransformSpace> getBone()
     {
         UIKeyframeFactory editor = this.editor;
         String bone = null;
-        boolean local = false;
+        TransformSpace space = TransformSpace.LOCAL;
 
         if (editor instanceof UIPoseKeyframeFactory pose)
         {
@@ -166,7 +174,7 @@ public class UIKeyframeEditor extends UITimelinePanel
                         int i = sheet.id.lastIndexOf('/');
                         bone = i >= 0 ? sheet.id.substring(0, i + 1) + currentFirst : currentFirst;
                     }
-                    local = pose.poseEditor.transform.isLocal();
+                    space = pose.poseEditor.transform.getSpace();
                 }
             }
         }
@@ -183,14 +191,14 @@ public class UIKeyframeEditor extends UITimelinePanel
                 if (poseBonePath != null)
                 {
                     bone = poseBonePath.subjectPath();
-                    local = transform.transform.isLocal();
+                    space = transform.transform.getSpace();
                 }
                 else if (id.startsWith("transform"))
                 {
                     int i = sheet.id.lastIndexOf('/');
 
                     bone = i >= 0 ? sheet.id.substring(0, i) : "";
-                    local = transform.transform.isLocal();
+                    space = transform.transform.getSpace();
                 }
             }
         }
@@ -205,23 +213,21 @@ public class UIKeyframeEditor extends UITimelinePanel
                 if (poseBonePath != null)
                 {
                     bone = poseBonePath.subjectPath();
-                    local = poseTransform.transform.isLocal();
+                    space = poseTransform.transform.getSpace();
                 }
             }
         }
 
         if (bone != null)
         {
-            return new Pair<>(bone, local);
+            return new Pair<>(bone, space);
         }
 
         return null;
     }
 
-    /** The space of the active editable transform (mirrors
-     *  {@code UIReplaysEditorUtils.getEditableTransform}'s dispatch — the bone
-     *  tracks AND the form anchor), so the film gizmo is drawn in the very space
-     *  its drag operates in. */
+    /** The frame of the active editable transform, bone or form anchor alike (mirrors
+     *  {@code UIReplaysEditorUtils.getEditableTransform}'s dispatch). */
     public TransformSpace getBoneSpace()
     {
         UIKeyframeFactory editor = this.editor;
@@ -247,14 +253,39 @@ public class UIKeyframeEditor extends UITimelinePanel
     }
 
     /**
-     * Whether the active editor is the form's "anchor" property track — the one
-     * that re-parents the whole form to another replay's attachment and carries
-     * a {@link mchorse.bbs_mod.utils.pose.Transform} offset the gizmo can edit.
-     * The IK/pole/physics target tracks reuse the {@code Anchor} value type but
-     * are created without a backing property, so the {@code property != null}
-     * test excludes them; the {@code "anchor"} id keeps it to the root form's
-     * track, whose placement {@link mchorse.bbs_mod.film.BaseFilmController}
-     * resolves from the entity's own {@code form.anchor}.
+     * How to NAME whatever {@link #getBone} just resolved, for the readouts that say what is
+     * being edited. It answers the same dispatch, so keep the two together.
+     *
+     * <p>A pose track is one channel called "pose" and the bone is picked inside it, in the
+     * group list — so there the bone's own name is the useful answer, not the track's. Every
+     * other track IS the thing being edited, so it goes by its timeline title, which also
+     * carries the user's renames. The distinction matters because {@code getBone()} returns a
+     * path that means different things in the two cases: a bone's for a pose track, the form's
+     * for a transform one (empty for the root form).
+     */
+    public String getTargetLabel()
+    {
+        if (this.editor instanceof UIPoseKeyframeFactory pose)
+        {
+            String bone = pose.poseEditor.groups.list.getCurrentFirst();
+
+            if (bone != null && !bone.isEmpty())
+            {
+                return bone;
+            }
+        }
+
+        UIKeyframeSheet sheet = this.editor == null ? null : this.getSheet(this.editor.getKeyframe());
+
+        return sheet == null || sheet.title == null ? null : sheet.title.get();
+    }
+
+    /**
+     * Whether the active editor is the form's "anchor" property track — the one that
+     * re-parents the form and carries a Transform offset the gizmo can edit. The
+     * IK/pole/physics targets reuse the {@code Anchor} type without a backing property,
+     * so {@code property != null} excludes them, and the {@code "anchor"} id keeps this
+     * to the root form's track.
      */
     public boolean isFormAnchorTrack()
     {
@@ -281,10 +312,12 @@ public class UIKeyframeEditor extends UITimelinePanel
         return sheet != null && "crowd_motion_path".equals(sheet.id);
     }
 
-    /** Whether the anchor gizmo should be oriented in the bone's local space (mirrors {@link #getBone()}'s flag). */
-    public boolean getAnchorLocal()
+    /** The frame the anchor gizmo is drawn and dragged in. */
+    public TransformSpace getAnchorSpace()
     {
-        return this.editor instanceof UIAnchorKeyframeFactory factory && factory.transform.isLocal();
+        return this.editor instanceof UIAnchorKeyframeFactory factory
+            ? factory.transform.getSpace()
+            : TransformSpace.LOCAL;
     }
 
     @Override

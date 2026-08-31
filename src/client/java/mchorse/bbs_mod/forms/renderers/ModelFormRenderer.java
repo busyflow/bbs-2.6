@@ -23,7 +23,6 @@ import mchorse.bbs_mod.cubic.physics.ModelPhysicsRuntime;
 import mchorse.bbs_mod.cubic.model.ArmorSlot;
 import mchorse.bbs_mod.cubic.model.ArmorType;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
-import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.forms.CustomVertexConsumerProvider;
 import mchorse.bbs_mod.forms.FormTranslucentQueue;
 import mchorse.bbs_mod.forms.FormUtilsClient;
@@ -39,6 +38,7 @@ import mchorse.bbs_mod.forms.renderers.utils.FormPbr;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
 import mchorse.bbs_mod.ui.utils.pose.PoseBones;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCacheEntry;
+import mchorse.bbs_mod.forms.renderers.utils.RenderFrame;
 import mchorse.bbs_mod.math.Operation;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.settings.values.core.ValuePose;
@@ -51,6 +51,7 @@ import mchorse.bbs_mod.utils.colors.Color;
 import mchorse.bbs_mod.utils.joml.Vectors;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
@@ -169,6 +170,8 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
     public Pose getPose()
     {
+        BBSProfiler.count(BBSProfiler.Section.POSE_COPY);
+
         Pose pose = this.form.pose.get().copy();
         Pose overlay = this.form.poseOverlay.get();
 
@@ -219,9 +222,38 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
      */
     private void evaluateChannels(IEntity entity, ModelInstance model, float transition)
     {
+        /* The asset already holds this exact evaluation (same form, entity, transition, frame
+         * and pose version) — every render pass of a frame used to redo it: the main render,
+         * the shadow displacement's two samples, the stencil pass, the Iris shadow pass.
+         * Skipping rewinds the constraint stack's orient/offset writes to the channels-phase
+         * snapshot, because IK/physics blend FROM the evaluated state and must not stack on
+         * their own previous output. Both skeleton flavours keep such a snapshot. */
+        boolean cacheable = this.form != null && model.model != null && RenderFrame.isEnabled();
+
+        if (cacheable && model.matchesChannels(this.form, entity, transition, RenderFrame.getEpoch(), this.form.getPoseVersion()))
+        {
+            BBSProfiler.count(BBSProfiler.Section.CHANNELS_SKIPPED);
+
+            model.model.restoreChannels();
+
+            return;
+        }
+
+        BBSProfiler.count(BBSProfiler.Section.EVALUATE_CHANNELS);
+
         model.model.resetPose();
         this.animator.applyActions(entity, model, transition);
         model.model.applyPose(this.getPose());
+
+        if (cacheable)
+        {
+            model.model.snapshotChannels();
+            model.stampChannels(this.form, entity, transition, RenderFrame.getEpoch(), this.form.getPoseVersion());
+        }
+        else
+        {
+            model.clearChannels();
+        }
     }
 
     public void ensureAnimator(float transition)
@@ -426,10 +458,18 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
             RenderSystem.enableCull();
         }
 
-        /* Render items */
-        this.captureMatrices(model);
+        /* Render items. The capture allocates ~4 matrices per bone, and its only readers here
+         * are the item/armor block right below (skipped in the picking pass entirely) and
+         * renderBodyParts afterwards - so a model with neither pays for neither. */
+        boolean hasEquipment = !model.getItemsMain().isEmpty() || !model.getItemsOff().isEmpty() || !model.getArmorSlots().isEmpty();
+        boolean hasBodyParts = this.form != null && !this.form.parts.getAllTyped().isEmpty();
 
-        if (stencilMap == null)
+        if (hasBodyParts || (stencilMap == null && hasEquipment))
+        {
+            this.captureMatrices(model);
+        }
+
+        if (stencilMap == null && hasEquipment)
         {
             this.renderItems(target, model, stack, EquipmentSlot.MAINHAND, ModelTransformationMode.THIRD_PERSON_RIGHT_HAND, model.getItemsMain(), finalColor, overlay, light);
             this.renderItems(target, model, stack, EquipmentSlot.OFFHAND, ModelTransformationMode.THIRD_PERSON_LEFT_HAND, model.getItemsOff(), finalColor, overlay, light);
@@ -837,7 +877,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
         for (BodyPart part : this.form.parts.getAllTyped())
         {
-            Matrix4f matrix = this.bones.get(part.bone.get()).matrix();
+            Matrix4f matrix = part.filterBoneMatrix(this.bones.get(part.bone.get()).matrix());
 
             context.stack.push();
             if (context.world != null)
@@ -940,7 +980,7 @@ public class ModelFormRenderer extends FormRenderer<ModelForm> implements ITicka
 
             if (form != null)
             {
-                Matrix4f matrix = this.bones.get(part.bone.get()).matrix();
+                Matrix4f matrix = part.filterBoneMatrix(this.bones.get(part.bone.get()).matrix());
 
                 stack.push();
 

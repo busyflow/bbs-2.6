@@ -12,7 +12,6 @@ import mchorse.bbs_mod.forms.states.AnimationState;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.settings.values.core.ValuePose;
-import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
@@ -23,6 +22,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FormUtils
 {
@@ -189,9 +190,27 @@ public class FormUtils
      * Resolve a body-part path — {@code /}-separated stable part ids — starting at {@code form}.
      * Each segment names a part of the current form and steps into that part's form.
      */
+    /**
+     * Split cache for the two path walkers below: they run per track per frame over a small,
+     * stable set of authored paths, and {@code String.split} allocated a fresh array (plus a
+     * regex pass) for each. Concurrent map — tracks apply on the client, actions on the server.
+     */
+    private static final Map<String, String[]> SPLIT_PATHS = new ConcurrentHashMap<>();
+
+    private static String[] splitPath(String path)
+    {
+        /* A runaway set of generated paths must not pin memory forever. */
+        if (SPLIT_PATHS.size() > 4096)
+        {
+            SPLIT_PATHS.clear();
+        }
+
+        return SPLIT_PATHS.computeIfAbsent(path, (p) -> p.split(PATH_SEPARATOR));
+    }
+
     public static Form getForm(Form form, String path)
     {
-        for (String s : path.split(PATH_SEPARATOR))
+        for (String s : splitPath(path))
         {
             BodyPart part = form.parts.get(s) instanceof BodyPart bodyPart ? bodyPart : null;
 
@@ -306,9 +325,9 @@ public class FormUtils
             return null;
         }
 
-        for (String segment : path.split(PATH_SEPARATOR))
+        for (String segment : splitPath(path))
         {
-            BaseValueBasic property = form.getAllMap().get(segment);
+            BaseValueBasic property = form.getBasic(segment);
 
             if (property != null)
             {

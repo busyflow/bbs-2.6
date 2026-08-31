@@ -1,21 +1,24 @@
 package mchorse.bbs_mod.ui.film.controller;
 
+import mchorse.bbs_mod.ui.framework.elements.input.drag.TransformSpace;
 import mchorse.bbs_mod.ui.framework.elements.input.keyframes.factories.UICrowdWalkKeyframeFactory;
 import mchorse.bbs_mod.film.BaseFilmController;
 import mchorse.bbs_mod.film.FilmEntityRenderer;
 import mchorse.bbs_mod.film.Film;
 import mchorse.bbs_mod.film.FilmControllerContext;
+import mchorse.bbs_mod.film.FilmTarget;
 import mchorse.bbs_mod.film.replays.Replay;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.entities.MCEntity;
 import mchorse.bbs_mod.forms.entities.StubEntity;
 import mchorse.bbs_mod.forms.forms.Form;
+import mchorse.bbs_mod.forms.renderers.utils.RenderFrame;
 import mchorse.bbs_mod.settings.values.base.BaseValue;
 import mchorse.bbs_mod.settings.values.ui.ValueOnionSkin;
 import mchorse.bbs_mod.utils.CollectionUtils;
-import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.colors.Colors;
 import mchorse.bbs_mod.utils.keyframes.Keyframe;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 import mchorse.bbs_mod.utils.keyframes.KeyframeSegment;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
@@ -174,13 +177,18 @@ public class FilmEditorController extends BaseFilmController
 
                 if (segment != null)
                 {
+                    BBSProfiler.begin(BBSProfiler.Timer.ONION);
                     this.renderOnion(replay, pose.getKeyframes().indexOf(segment.a), -1, pose, onionSkin.preColor.get(), onionSkin.preFrames.get(), context, isPlaying, entity);
                     this.renderOnion(replay, pose.getKeyframes().indexOf(segment.b), 1, pose, onionSkin.postColor.get(), onionSkin.postFrames.get(), context, isPlaying, entity);
+                    BBSProfiler.end(BBSProfiler.Timer.ONION);
 
                     replay.keyframes.apply(ticks, entity);
                     float tick = ticks + this.getTransition(entity, context.tickDelta());
                     Form form = entity.getForm();
                     replay.properties.applyProperties(form, tick);
+
+                    /* Back on the current tick after the onion excursion. */
+                    RenderFrame.invalidate();
 
                     if (!isPlaying)
                     {
@@ -217,6 +225,10 @@ public class FilmEditorController extends BaseFilmController
             Form form = entity.getForm();
             replay.properties.applyProperties(form, tick);
 
+            /* This pass re-poses the live entity for another tick; whatever the frame cache
+             * holds for it no longer describes what is about to render. */
+            RenderFrame.invalidate();
+
             FilmEntityRenderer.renderEntity(FilmControllerContext.instance
                 .setup(this.getEntities(), entity, replay, context)
                 .color(Colors.setA(color, alpha))
@@ -230,29 +242,15 @@ public class FilmEditorController extends BaseFilmController
     @Override
     protected FilmControllerContext getFilmControllerContext(WorldRenderContext context, Replay replay, IEntity entity)
     {
-        Pair<String, Boolean> bone = this.isCurrent(entity) && !this.controller.panel.recorder.isRecording() ? this.controller.getBone() : null;
-        String aBone = bone == null ? null : bone.a;
-        boolean local = bone != null && bone.b;
-        String aBone2 = null;
-        boolean local2 = false;
+        boolean recording = this.controller.panel.recorder.isRecording();
 
-        if (replay.axesPreview.get())
-        {
-            aBone2 = replay.axesPreviewBone.get();
-            local2 = true;
-        }
+        /* One question, asked once. The gizmo only ever belongs to the replay being edited,
+         * so every other actor in the film gets NONE. */
+        FilmTarget target = this.isCurrent(entity) && !recording
+            ? this.controller.getEditTarget()
+            : FilmTarget.NONE;
 
-        if (this.controller.panel.recorder.isRecording())
-        {
-            aBone = null;
-            local = false;
-            aBone2 = null;
-            local2 = false;
-        }
-
-        boolean anchorGizmo = this.isCurrent(entity)
-            && !this.controller.panel.recorder.isRecording()
-            && this.controller.isAnchorGizmo();
+        String aBone2 = replay.axesPreview.get() && !recording ? replay.axesPreviewBone.get() : null;
 
         /* This context is what every pass reads - the one that draws and the one that picks -
          * so the walk waypoint has to be named here. Naming it only where the stencil is built
@@ -264,14 +262,14 @@ public class FilmEditorController extends BaseFilmController
 
         return super.getFilmControllerContext(context, replay, entity)
             .transition(this.getTransition(entity, context.tickDelta()))
-            .bone(aBone, local)
-            .gizmoSpace(this.controller.getBoneSpace(), this.controller.getGizmoView())
-            .bone2(aBone2, local2)
-            .anchorGizmo(anchorGizmo, this.controller.getAnchorLocal())
+            .gizmoTarget(target)
+            .gizmoView(this.controller.getGizmoView())
+            .bone2(aBone2, TransformSpace.LOCAL)
             .crowdMotionGizmo(
                 crowdMotion == null ? null : crowdMotion.getPath(),
                 crowdMotion == null ? 0F : crowdMotion.getMotionKeyframe().getTick()
-            );
+            )
+            .replayShiftGizmo(this.controller.getReplayShiftPosition());
     }
 
     private boolean isCurrent(IEntity entity)

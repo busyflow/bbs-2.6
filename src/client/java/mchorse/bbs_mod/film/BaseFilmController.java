@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import mchorse.bbs_mod.BBSSettings;
+import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.client.renderer.ItemUseEffects;
 import mchorse.bbs_mod.client.renderer.LivePlayerItemUse;
 import mchorse.bbs_mod.client.renderer.SprintEffects;
@@ -19,22 +21,26 @@ import mchorse.bbs_mod.film.replays.tracks.TrackBehaviour;
 import mchorse.bbs_mod.film.replays.tracks.TrackBehaviours;
 import mchorse.bbs_mod.film.replays.tracks.TrackContext;
 import mchorse.bbs_mod.forms.FormUtils;
+import mchorse.bbs_mod.forms.entities.EntityState;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.entities.MCEntity;
 import mchorse.bbs_mod.forms.entities.StubEntity;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.utils.Anchor;
 import mchorse.bbs_mod.forms.renderers.utils.MatrixCache;
+import mchorse.bbs_mod.mixin.EntityInvoker;
+import mchorse.bbs_mod.mixin.LivingEntityRollAccessor;
 import mchorse.bbs_mod.mixin.client.ClientPlayerEntityAccessor;
 import mchorse.bbs_mod.morphing.Morph;
-import mchorse.bbs_mod.utils.CollectionUtils;
 import mchorse.bbs_mod.utils.Pair;
 import mchorse.bbs_mod.utils.StringUtils;
+import mchorse.bbs_mod.utils.profiler.BBSProfiler;
 import mchorse.bbs_mod.utils.interps.Lerps;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.Camera;
+import net.minecraft.client.render.Frustum;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
@@ -42,6 +48,7 @@ import net.minecraft.entity.MovementType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.LightType;
 import net.minecraft.world.World;
@@ -259,8 +266,10 @@ public abstract class BaseFilmController
                             double x = replay.keyframes.x.interpolate(replayTicks);
                             double y = replay.keyframes.y.interpolate(replayTicks);
                             double z = replay.keyframes.z.interpolate(replayTicks);
-                            boolean sneaking = replay.keyframes.sneaking.interpolate(replayTicks) > 0;
-                            boolean grounded = replay.keyframes.grounded.interpolate(replayTicks) > 0;
+                            boolean sneaking = EntityState.isOn(replay.keyframes.state(EntityState.SNEAKING).interpolate(replayTicks));
+                            boolean grounded = EntityState.isOn(replay.keyframes.state(EntityState.GROUNDED).interpolate(replayTicks));
+                            boolean swimming = EntityState.isOn(replay.keyframes.state(EntityState.SWIMMING).interpolate(replayTicks));
+                            boolean gliding = EntityState.isOn(replay.keyframes.state(EntityState.GLIDING).interpolate(replayTicks));
 
                             Vec3d pos = player.getPos();
 
@@ -277,7 +286,14 @@ public abstract class BaseFilmController
                             /* The player's own tick overwrites this from the input every tick, but
                              * baseTick (which spawns the sprinting particles) runs before it, so a
                              * value written at the end of the world tick is the one vanilla sees. */
-                            player.setSprinting(replay.keyframes.sprinting.interpolate(replayTicks) > 0);
+                            player.setSprinting(EntityState.isOn(replay.keyframes.state(EntityState.SPRINTING).interpolate(replayTicks)));
+
+                            /* Same window, same reason: written at the end of the world tick so
+                             * the player's own tick doesn't get to overwrite them first. */
+                            player.setSwimming(swimming);
+                            ((EntityInvoker) player).bbs$setFlag(EntityState.FALL_FLYING_FLAG, gliding);
+                            player.setPose(EntityState.pose(gliding, swimming, sneaking));
+                            ((LivingEntityRollAccessor) player).bbs$setRoll(replay.keyframes.roll.interpolate(replayTicks).intValue());
 
                             /* First person teleports the player from keyframes instead of walking it, so vanilla's
                              * stride distance (the view-bobbing amplitude) is computed from a zero velocity and stays
@@ -461,11 +477,21 @@ public abstract class BaseFilmController
         return i != this.exception;
     }
 
+    /**
+     * Half-extent of the box a replay is culled by, around its entity. Deliberately generous:
+     * a form reaches past its hitbox (trails, particles, scaled models), and a box this large
+     * still culls everything a big set keeps far outside the shot.
+     */
+    private static final double CULL_RADIUS = 32D;
+
     public void render(WorldRenderContext context)
     {
         RenderSystem.enableDepthTest();
 
+        BBSProfiler.begin(BBSProfiler.Timer.WORLD_FORMS);
+
         List<Replay> replays = this.replays();
+        Frustum frustum = BBSSettings.frustumCulling.get() && !BBSRendering.isIrisShadowPass() ? context.frustum() : null;
 
         for (int i = 0; i < replays.size(); i++)
         {
@@ -477,8 +503,40 @@ public abstract class BaseFilmController
                 continue;
             }
 
+            if (frustum != null && this.isCulled(frustum, replay, entity))
+            {
+                continue;
+            }
+
             this.renderEntity(context, replay, entity);
         }
+
+        BBSProfiler.end(BBSProfiler.Timer.WORLD_FORMS);
+    }
+
+    /**
+     * Whether the replay's generous surroundings are entirely off screen. An anchored form
+     * stands wherever its target does, not at its entity, so it is never culled by the entity's
+     * position; culling a replay others hang off is fine — anchors read its matrices through
+     * the pose pipeline, not through its draw.
+     */
+    private boolean isCulled(Frustum frustum, Replay replay, IEntity entity)
+    {
+        Form form = entity.getForm();
+
+        if (form == null || form.anchor.get().hasTarget())
+        {
+            return false;
+        }
+
+        double x = entity.getX();
+        double y = entity.getY();
+        double z = entity.getZ();
+
+        return !frustum.isVisible(new Box(
+            x - CULL_RADIUS, y - CULL_RADIUS, z - CULL_RADIUS,
+            x + CULL_RADIUS, y + CULL_RADIUS, z + CULL_RADIUS
+        ));
     }
 
     protected void renderEntity(WorldRenderContext context, Replay replay, IEntity entity)
