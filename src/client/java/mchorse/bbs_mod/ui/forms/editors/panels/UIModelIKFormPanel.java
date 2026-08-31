@@ -51,9 +51,6 @@ public class UIModelIKFormPanel extends UIBoneListFormPanel
     private static final int MARKER_JOINT = Colors.A100 | Colors.ORANGE;
     private static final int MARKER_OFF = Colors.GRAY;
 
-    public UIBoneTreeList bones;
-    public UISearchList<String> bonesSearch;
-
     public UIToggle debug;
     public UIToggle enabled;
     public UIBonePicker target;
